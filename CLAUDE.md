@@ -6,19 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repo analyzes personal Walmart order history. It has two parts:
 
-- **Root**: raw data exports and a (currently empty) Jupyter notebook (`shoppping.ipynb`) intended for data collection and categorization work — see `README.md`'s two-step outline (data collection, then categorization).
+- **Root**: raw data exports (in `sample_data/`) and a (currently empty) Jupyter notebook (`shoppping.ipynb`) intended for data collection and categorization work — see `README.md`'s two-step outline (data collection, then categorization).
 - **`frontend/`**: an Angular application (project name `shopping-analysis`) scaffolded for building an analysis/visualization UI on top of the exported data. It's a fresh `ng new` scaffold with no app-specific code yet.
 
-## Data files (root)
+## Data files (`sample_data/`)
 
-These are Walmart order exports, re-generated/overwritten as new exports are pulled — treat them as data, not source of truth for schema (check the CSV header row instead of assuming columns):
+These are Walmart order-items exports, re-generated/overwritten as new exports are pulled — treat them as data, not source of truth for schema (check the CSV header row instead of assuming columns):
 
-- `Walmart_Orders.csv` / `Walmart_Orders_2.csv` — one row per order (order number, date, address, payment, subtotal/savings/tax/tip, order total, fulfillment, tracking).
-- `Walmart_Orders_Items.csv` / `Walmart_Orders_Items_2.csv` — one row per line item within an order (order number, product name, quantity, price, delivery status, product link). Joins to the orders files on `Order Number`.
-- `Walmart_Orders_Items_With_Generic_Names.csv` — same as the items file, plus a `Generic Name` column that normalizes verbose Walmart product titles (e.g. "Fairfield Cushion Wrap for Crafts and Projects, 30\" x 10 Feet") down to a short generic label (e.g. "Fairfield Cushion Wrap for Crafts and Projects") — this is the categorization step referenced in the README.
-- `Walmart_Orders.xlsx` — Excel version of the orders export.
+- `Walmart_Orders_Items.csv` — one row per line item within an order (order number, order date, product name, quantity, price, delivery status, product link).
+- `Walmart_Orders_Items_partial.csv` — a partial/in-progress export of the same shape as `Walmart_Orders_Items.csv`; a subset, not a distinct schema.
 
 There is no code in this repo yet that generates or consumes these CSVs (`shoppping.ipynb` is empty) — the pipeline referenced by the README ("collection" → "categorization") has not been implemented.
+
+Ignore `extra_files/` — it holds older exports (including an orders-level file and a generic-name mapping) that are incomplete, incorrect, or otherwise irrelevant; don't treat it as documentation of the current schema or pipeline.
 
 ## Frontend (`frontend/`)
 
