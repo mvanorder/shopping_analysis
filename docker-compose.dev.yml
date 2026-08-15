@@ -1,0 +1,16 @@
+# Dev: plain password via env file, port published to the host so local
+# tools (psql, DBeaver, etc.) can connect directly, disposable volume.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  db:
+    env_file:
+      - .env.dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data-dev:/var/lib/postgresql/data
+    restart: "no"
+
+volumes:
+  db-data-dev:

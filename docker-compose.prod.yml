@@ -1,0 +1,36 @@
+# Prod: no host port at all (single-server path from docs/design/uac-design.md
+# — the backend container reaches this over the compose network); password
+# from a Docker secret, not an env var, so it never shows up in `docker
+# inspect` or process listings.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Cloud path: this file is for the single-server deployment. On Cloud
+# Run/ECS, use managed Postgres (Cloud SQL / RDS) instead of this service —
+# see "The migration path between them" in docs/design/uac-design.md.
+services:
+  db:
+    env_file:
+      - .env.prod
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - db-data-prod:/var/lib/postgresql/data
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password_prod.txt
+
+volumes:
+  db-data-prod:

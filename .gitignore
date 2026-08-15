@@ -1,1 +1,11 @@
 .idea/
+
+# Environment files with real credentials — commit only the .example templates.
+.env
+.env.dev
+.env.staging
+.env.prod
+
+# Secret files — commit only the .example templates.
+secrets/*
+!secrets/*.example
