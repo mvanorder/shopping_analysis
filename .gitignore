@@ -9,3 +9,12 @@
 # Secret files — commit only the .example templates.
 secrets/*
 !secrets/*.example
+
+# Git worktree
+.worktree/
+
+# Claude local settings
+.claude/settings.local.json
+
+# Jupyter notebooks
+*.ipynb
