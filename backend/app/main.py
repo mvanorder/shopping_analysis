@@ -2,17 +2,28 @@ import csv
 import io
 import logging
 
+import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from sqlalchemy import text as sa_text
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Shopping Analysis")
+
+
+def run() -> None:
+    """Run the development server via ``uvicorn`` with autoreload enabled.
+
+    Entry point for the ``serve`` script (see ``pyproject.toml``).
+
+    :returns: None
+    :rtype: None
+    """
+    uvicorn.run("app.main:app", reload=True)
 
 
 @app.get("/health")

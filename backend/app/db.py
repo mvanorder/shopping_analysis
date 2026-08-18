@@ -6,6 +6,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
 
+
 @lru_cache
 def get_engine():
     """Return the cached async SQLAlchemy engine.

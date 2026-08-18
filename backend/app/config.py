@@ -1,8 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"  # backend/.env
