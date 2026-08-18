@@ -20,6 +20,22 @@ services:
           cpus: "1.0"
           memory: 1G
 
+  backend:
+    env_file:
+      - .env.staging
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
 secrets:
   postgres_password:
     file: ./secrets/postgres_password_staging.txt

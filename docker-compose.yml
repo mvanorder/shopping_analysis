@@ -19,6 +19,25 @@ services:
     networks:
       - shopping-analysis
 
+  backend:
+    build:
+      context: ./backend
+    image: shopping-analysis-backend:local
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - shopping-analysis
+
 networks:
   shopping-analysis:
     driver: bridge
