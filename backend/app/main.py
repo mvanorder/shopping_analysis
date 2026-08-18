@@ -1,13 +1,32 @@
 import csv
 import io
+import logging
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from sqlalchemy import text as sa_text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.db import get_db
+
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Shopping Analysis")
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health/db")
+async def health_db(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+    try:
+        await db.execute(sa_text("SELECT 1"))
+    except SQLAlchemyError:
+        logger.exception("Database check failed")
+        raise HTTPException(status_code=503, detail="Database unavailable")
     return {"status": "ok"}
 
 
