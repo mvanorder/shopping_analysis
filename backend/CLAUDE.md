@@ -1,0 +1,62 @@
+# CLAUDE.md (backend)
+
+This file provides guidance to Claude Code when working in `backend/`.
+
+## Project overview
+
+FastAPI backend for the _Shopping Analysis_ project. It exposes
+HTTP endpoints for uploading/inspecting order data and persists to Postgres
+via SQLAlchemy's async engine, with Alembic managing schema migrations.
+
+- `app/main.py` — FastAPI app and route handlers.
+- `app/config.py` — `Settings` (pydantic-settings) for Postgres connection
+  config, loaded from `backend/.env` (see `.env.example`) or environment
+  variables.
+- `app/db.py` — async engine/session setup (`get_engine`, `get_sessionmaker`,
+  `get_db`) and the declarative `Base` for ORM models.
+- `alembic/`, `alembic.ini` — migrations; `alembic/env.py` builds the DB URL
+  from `app.config.Settings` rather than `alembic.ini`'s `sqlalchemy.url`.
+
+## Running
+
+From `backend/`, with the venv active:
+
+- `uvicorn app.main:app --reload` — run the dev server.
+- `alembic upgrade head` — apply migrations.
+- `alembic revision --autogenerate -m "<message>"` — generate a migration.
+
+## Docstring conventions
+
+- **Every** Python class and function/method — public or private — must have
+  a docstring. At minimum, a one-line summary of its purpose; no exceptions
+  for "obvious" or trivial ones.
+- Use **reST style** for docstrings (`:param:`, `:type:`, `:returns:`,
+  `:rtype:`, `:raises:`), e.g.:
+
+  ```python
+  def get_settings() -> Settings:
+      """Return the cached application settings singleton.
+
+      :returns: The process-wide ``Settings`` instance.
+      :rtype: Settings
+      """
+  ```
+
+  ```python
+  async def upload_orders_csv(file: UploadFile) -> dict:
+      """Parse an uploaded Walmart order-history CSV and echo its rows.
+
+      :param file: The uploaded CSV file.
+      :type file: UploadFile
+      :raises HTTPException: If the file is missing, not a ``.csv``, not
+          valid UTF-8, or has no header row.
+      :returns: The filename, column names, row count, and parsed rows.
+      :rtype: dict
+      """
+  ```
+
+- Omit a `:param:`/`:returns:`/`:raises:` line only when it doesn't apply
+  (e.g. no parameters, no meaningful return value) — don't pad docstrings
+  with empty sections.
+- FastAPI route docstrings still need `:param:`/`:returns:`/`:raises:` where
+  applicable, in addition to serving as the OpenAPI summary.

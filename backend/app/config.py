@@ -8,6 +8,8 @@ from sqlalchemy.engine import URL
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"  # backend/.env
 
 class Settings(BaseSettings):
+    """Application settings loaded from environment variables or ``backend/.env``."""
+
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     postgres_host: str = "localhost"
@@ -22,9 +24,14 @@ class Settings(BaseSettings):
 
     @property
     def _db_password(self) -> str:
-        """Get and return the database password
-        :raises ValueError: if the file specified in POSTGRES_PASSWORD_FILE does not exist.
-        :raises ValueError: if POSTGRES_PASSWORD and POSTGRES_PASSWORD_FILE are both not set.
+        """Get and return the database password.
+
+        :raises ValueError: If the file specified in POSTGRES_PASSWORD_FILE
+            does not exist.
+        :raises ValueError: If POSTGRES_PASSWORD and POSTGRES_PASSWORD_FILE
+            are both not set.
+        :returns: The plaintext database password.
+        :rtype: str
         """
         if self.postgres_password:
             return self.postgres_password.get_secret_value()
@@ -39,8 +46,15 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> URL:
-        # URL.create percent-encodes user/password, so special characters
-        # (e.g. "@" or ":" in a password) don't get misparsed as URL syntax.
+        """Build the Postgres connection URL from the configured settings.
+
+        Uses ``URL.create``, which percent-encodes the username/password,
+        so special characters (e.g. "@" or ":" in a password) don't get
+        misparsed as URL syntax.
+
+        :returns: The async Postgres connection URL.
+        :rtype: URL
+        """
         return URL.create(
             drivername="postgresql+asyncpg",
             username=self.postgres_user,
@@ -53,4 +67,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return the cached application settings singleton.
+
+    :returns: The process-wide ``Settings`` instance.
+    :rtype: Settings
+    """
     return Settings()

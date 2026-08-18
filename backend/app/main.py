@@ -17,11 +17,24 @@ app = FastAPI(title="Shopping Analysis")
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    """Report basic application liveness.
+
+    :returns: A static ``{"status": "ok"}`` payload.
+    :rtype: dict[str, str]
+    """
     return {"status": "ok"}
 
 
 @app.get("/health/db")
 async def health_db(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+    """Check database connectivity by running a trivial query.
+
+    :param db: The database session, injected via dependency.
+    :type db: AsyncSession
+    :raises HTTPException: If the database is unreachable.
+    :returns: A static ``{"status": "ok"}`` payload if the query succeeds.
+    :rtype: dict[str, str]
+    """
     try:
         await db.execute(sa_text("SELECT 1"))
     except SQLAlchemyError:
@@ -32,7 +45,14 @@ async def health_db(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
 
 @app.post("/orders/upload")
 async def upload_orders_csv(file: UploadFile) -> dict:
-    """Upload Walmart orders history CSV
+    """Parse an uploaded Walmart order-history CSV and echo its rows.
+
+    :param file: The uploaded CSV file.
+    :type file: UploadFile
+    :raises HTTPException: If the file is missing, not a ``.csv``, not
+        valid UTF-8, or has no header row.
+    :returns: The filename, column names, row count, and parsed rows.
+    :rtype: dict
     """
     # Check that the file uploaded is a CSV
     if not file.filename or not file.filename.lower().endswith(".csv"):

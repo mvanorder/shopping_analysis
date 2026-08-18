@@ -57,6 +57,12 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    """Run pending migrations against an active connection.
+
+    :param connection: The connection to run migrations against.
+    :type connection: Connection
+    :rtype: None
+    """
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
