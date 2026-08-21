@@ -18,3 +18,6 @@ secrets/*
 
 # Jupyter notebooks
 *.ipynb
+
+# Sandbox for storing temporary files, experiments, and other non-essential data.
+sandbox/
