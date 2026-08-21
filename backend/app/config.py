@@ -1,3 +1,5 @@
+"""Application settings loaded from environment variables or ``backend/.env``."""
+
 from functools import lru_cache
 from pathlib import Path
 
@@ -38,8 +40,10 @@ class Settings(BaseSettings):
         if self.postgres_password_file:
             password_file_path = Path(self.postgres_password_file)
             if not password_file_path.exists():
-                raise ValueError(f"Could not read POSTGRES_PASSWORD_FILE: {self.postgres_password_file}")
-            return password_file_path.read_text().strip()
+                raise ValueError(
+                    f"Could not read POSTGRES_PASSWORD_FILE: {self.postgres_password_file}"
+                )
+            return password_file_path.read_text(encoding="utf-8").strip()
 
         raise ValueError("Set POSTGRES_PASSWORD or POSTGRES_PASSWORD_FILE")
 

@@ -1,3 +1,5 @@
+"""Async SQLAlchemy engine/session setup and the declarative ORM base."""
+
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
@@ -26,7 +28,7 @@ def get_sessionmaker():
     return async_sessionmaker(get_engine(), expire_on_commit=False)  # pragma: no cover
 
 
-class Base(DeclarativeBase):
+class Base(DeclarativeBase):  # pylint: disable=too-few-public-methods
     """Declarative base class for all ORM models in this app."""
 
 

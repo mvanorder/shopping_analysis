@@ -1,3 +1,5 @@
+"""FastAPI application and route handlers for the Shopping Analysis backend."""
+
 import csv
 import io
 import logging
@@ -48,9 +50,9 @@ async def health_db(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     """
     try:
         await db.execute(sa_text("SELECT 1"))
-    except SQLAlchemyError:
+    except SQLAlchemyError as exc:
         logger.exception("Database check failed")
-        raise HTTPException(status_code=503, detail="Database unavailable")
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
     return {"status": "ok"}
 
 

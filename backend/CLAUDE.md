@@ -30,6 +30,9 @@ From `backend/`, with the venv active:
 - **Every** Python class and function/method — public or private — must have
   a docstring. At minimum, a one-line summary of its purpose; no exceptions
   for "obvious" or trivial ones.
+- **Every** module (`.py` file) must also have a one-line module-level
+  docstring as its first statement, e.g. `"""Async SQLAlchemy engine/session
+  setup and the declarative ORM base."""` at the top of `app/db.py`.
 - Use **reST style** for docstrings (`:param:`, `:type:`, `:returns:`,
   `:rtype:`, `:raises:`), e.g.:
 
