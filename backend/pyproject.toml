@@ -23,7 +23,8 @@ migrate = "alembic.config:main"
 dev = [
     "pytest~=8.4",
     "pytest-asyncio~=1.0",
-    "httpx~=0.28",
+    "pytest-cov~=7.1.0",
+    "httpx2~=2.12.0",
     "ruff~=0.14",
     "mypy~=1.18",
 ]
@@ -49,3 +50,17 @@ python_version = "3.12"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "--cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=90"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = ["pragma: no cover"]
+
+[tool.coverage.html]
+directory = "htmlcov"
