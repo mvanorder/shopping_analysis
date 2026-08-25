@@ -1,6 +1,11 @@
 # UAC Design — User Management, Access Control & Deployment
 
-Status: draft, for review
+Status: draft, for review. Partially implemented: most of §5's schema (`users`,
+`auth_identities`, `refresh_tokens`, `roles`, `permissions`, `role_permissions`, `user_roles`,
+`audit_log`) exists as an ORM model + migration, and the container/compose scaffolding (§6–§8) is
+built. `orders`/`order_items` are deliberately excluded pending plan refinement (see §5). The
+*behavior* on top of the built schema is also not there yet: password hashing, JWT issuance, RBAC
+enforcement (§3), and the Google OAuth flow (§4) are all still design-only.
 Scope: user accounts, authentication, authorization (RBAC), and the container/deployment
 architecture needed to run this at anywhere from single-user to millions-of-users scale.
 
@@ -26,6 +31,25 @@ a password, a Google login, or both, without schema changes later:
 
 This split is what lets Google OAuth (§4) bolt on without a redesign, and lets a user later add
 a password to an OAuth-only account or vice versa.
+
+**Implemented** (`backend/app/models/user.py`): `User`, `AuthIdentity`, and `RefreshToken` ORM
+models matching this shape, with a few concrete choices the design above left open:
+
+- `users.id` / `auth_identities.id` / `refresh_tokens.id` are Postgres `UUID` columns with
+  `server_default=gen_random_uuid()` (no extension needed on PG13+, so `pgcrypto` isn't required).
+- `users.email` uses Postgres `CITEXT` for case-insensitive uniqueness, which does require the
+  `citext` extension — provisioned via `database/init/001-extensions.sql`, run at DB init time
+  (see §6).
+- `auth_identities.provider` is constrained with a DB-level `CHECK (provider IN ('password',
+  'google'))` in addition to whatever the app layer enforces, so an invalid provider value can't
+  reach the table even from a bug or a manual `INSERT`.
+- `refresh_tokens.ip_address` is a Postgres `INET` column rather than plain text.
+- Password hashing (argon2), JWT issuance, and the Google OAuth flow itself are not implemented
+  yet — only the schema these depend on exists so far.
+- The `roles`/`permissions`/`role_permissions`/`user_roles` (§3) and `audit_log` (§5) tables are
+  also now built as models (`app/models/rbac.py`, `app/models/audit.py`) — see §5 for the
+  specifics. `orders`/`order_items` are not built yet, pending plan refinement (§5). RBAC
+  *enforcement* (the `require_permission` dependency, §3) is not built either.
 
 ### Password handling
 
@@ -100,6 +124,12 @@ Default roles to ship with:
 | `admin` | manage users and roles within the system |
 | *(implicit)* `superuser` | `is_superuser=true` bypasses RBAC entirely — not a row in `roles` |
 
+**Implemented** (`backend/app/models/rbac.py`): `Role`, `Permission`, `RolePermission`,
+`UserRole` matching this schema exactly — `role_permissions`/`user_roles` use composite primary
+keys (`(role_id, permission_id)` / `(user_id, role_id)`) rather than a surrogate `id`, since
+they're pure join tables. No default rows (`user`/`admin`) are seeded yet, and nothing reads these
+tables — that's the `require_permission` dependency below, not yet written.
+
 ### Enforcement
 
 - A FastAPI dependency, e.g. `Depends(require_permission("orders:write"))`, checks the JWT's
@@ -148,30 +178,42 @@ startup, to avoid concurrent-migration races when multiple replicas boot at once
 
 ### Core tables
 
+The `users`/`auth_identities`/`refresh_tokens`/`roles`/`permissions`/`role_permissions`/
+`user_roles`/`audit_log` tables below are SQLAlchemy models
+(`backend/app/models/{user,rbac,audit}.py`) with a generated migration
+(`alembic/versions/0e452124ee78_add_uac_tables.py`) — schema is done; the RBAC-enforcement *code*
+that uses these tables is not (§3). `orders`/`order_items` are intentionally **not yet
+implemented** — that part of the schema needs its plan refined before implementation (open
+questions: import-time dedup key, whether `order_number` is unique per-user or globally, final
+shape of `tracking_numbers`) — so they're listed below as design-only, matching everything else
+in §5 that predates this session's work.
+
 ```
-users              id, email (unique), display_name, avatar_url, is_active,
-                   email_verified, is_superuser, created_at, updated_at, last_login_at
+users              id (uuid, gen_random_uuid()), email (citext, unique), display_name,
+                   avatar_url, is_active, email_verified, is_superuser,
+                   created_at, updated_at, last_login_at
 
-auth_identities    id, user_id FK, provider, provider_user_id, secret_hash,
-                   created_at   — unique(provider, provider_user_id)
+auth_identities    id (uuid), user_id FK (cascade), provider (check: 'password'|'google'),
+                   provider_user_id, secret_hash, created_at
+                   — unique(provider, provider_user_id)
 
-refresh_tokens     id, user_id FK, token_hash, expires_at, revoked_at,
-                   user_agent, ip_address, created_at
+refresh_tokens     id (uuid), user_id FK (cascade), token_hash (unique), expires_at,
+                   revoked_at, user_agent, ip_address (inet), created_at
 
-roles              id, name (unique), description
-permissions        id, resource, action              — unique(resource, action)
-role_permissions   role_id FK, permission_id FK
-user_roles         user_id FK, role_id FK
+roles              id (uuid), name (unique), description
+permissions        id (uuid), resource, action              — unique(resource, action)
+role_permissions   role_id FK (cascade, composite PK), permission_id FK (cascade, composite PK)
+user_roles         user_id FK (cascade, composite PK), role_id FK (cascade, composite PK)
 
-orders             id, user_id FK (indexed), order_number, order_date,
-                   subtotal, savings, tax, tip, order_total, fulfillment,
-                   tracking_numbers, created_at
+orders             id, user_id FK (indexed), order_number, order_date,       -- design only,
+                   subtotal, savings, tax, tip, order_total, fulfillment,       plan not final
+                   tracking_numbers, created_at                                (see below)
 
-order_items        id, order_id FK (indexed), product_name, generic_name,
+order_items        id, order_id FK (indexed), product_name, generic_name,   -- design only
                    quantity, price, delivery_status, product_link
 
-audit_log          id, actor_user_id, action, target_type, target_id,
-                   metadata (jsonb), created_at
+audit_log          id (uuid), actor_user_id FK (set null, indexed), action, target_type,
+                   target_id, metadata (jsonb, mapped as `metadata_`), created_at
 ```
 
 ### Notes
@@ -183,23 +225,62 @@ audit_log          id, actor_user_id, action, target_type, target_id,
   `order_items.order_id`.
 - `audit_log.metadata` as JSONB keeps it flexible for different action types without a schema
   migration per new admin action.
+- `Base.metadata` (`backend/app/db.py`) sets an explicit Alembic naming convention (`ix_`, `uq_`,
+  `uq_%(table_name)s_%(column_0_name)s`, `ck_`, `fk_`, `pk_` patterns) so autogenerate produces
+  stable, deterministic constraint/index names instead of DB-assigned ones, which differ across
+  dialects and can't be reliably referenced from a migration's `downgrade()`.
+- The `citext` extension required by `users.email` (above) is provisioned by
+  `database/init/001-extensions.sql`, baked into the custom Postgres image (§6) and applied once
+  at first container init — not run per-migration.
+- Two Alembic revisions exist: `be408b09e448_baseline_no_models_yet` (empty baseline) and
+  `0e452124ee78_add_uac_tables` (the eight built tables above — everything except `orders`/
+  `order_items`, which are pending plan refinement). `upgrade head` / `downgrade -1` /
+  `upgrade head` were exercised against the dev Postgres container and `alembic check` shows no
+  drift; `backend/tests/test_models.py` additionally asserts schema shape (PK/FK/unique/check
+  constraints, cascade rules, index shapes) directly against `Base.metadata`/`__table__` with no
+  live DB required, for fast CI feedback.
+- `AuditLog.metadata_` is deliberately misspelled relative to the DB column: SQLAlchemy's
+  `Declarative` base reserves the `metadata` attribute name for the class's own `MetaData` object,
+  so the Python attribute is `metadata_` while `mapped_column("metadata", JSONB)` keeps the actual
+  column named `metadata`.
 
 ---
 
 ## 6. Container design
 
-- **`backend` image**: multi-stage Dockerfile — a build stage installing dependencies, a slim
-  `python:3.12-slim` runtime stage with only runtime deps copied over, a non-root user, and a
-  `HEALTHCHECK` against `/health`. Runs via `uvicorn` (or `gunicorn -k uvicorn.workers.UvicornWorker`
-  for multi-process) behind the platform's own load balancer.
-- **`worker` image**: same codebase/base image as `backend`, different entrypoint — processes
-  background jobs (CSV import parsing, email sending) off a queue, so a large upload never blocks
-  a request-handling process. Keeping the same base image avoids dependency drift between the two.
-- **`frontend`**: the Angular production build (`npm run build`) served as static files —
-  **not** through a Python container. Locally/on a single server, Nginx serves the built assets;
-  in the cloud, they go to object storage + CDN (§7) since static assets don't need compute.
-- Config exclusively via environment variables (12-factor); no secrets baked into images; images
-  tagged by git SHA for traceability, pushed to a registry (GCP Artifact Registry / AWS ECR).
+- **`backend` image** [built, `backend/Dockerfile`]: multi-stage — a `chainguard/python:latest-dev`
+  builder stage (has a shell/pip) that runs `uv sync --frozen --no-dev` into a `.venv`, copied into
+  a `chainguard/python:latest` (Wolfi-based, distroless) runtime stage. This supersedes the
+  originally-proposed `python:3.12-slim` runtime: Chainguard's image ships no shell and no package
+  manager, which shrinks attack surface further than slim but also means there's no `docker exec
+  sh` for interactive debugging (swap the runtime `FROM` to the `-dev` variant locally if needed).
+  Only the `:latest` tag is available without a paid Chainguard subscription, and it floats, so the
+  Dockerfile builds and tags its own image rather than depending on the upstream tag directly.
+  `ENTRYPOINT` is reset to `[]` (Chainguard bakes in `ENTRYPOINT ["/usr/bin/python"]`, which would
+  otherwise swallow `CMD`). The `HEALTHCHECK` against `/health` lives in docker-compose (§7) rather
+  than the Dockerfile itself. Alembic migrations are copied into the image but **not** run on
+  container start, per the no-concurrent-migration-races rule below — apply them explicitly
+  (`docker compose exec backend alembic upgrade head`).
+- **`database` image** [built, `database/Dockerfile`]: same Chainguard/Wolfi rationale as the
+  backend image, applied to Postgres (`chainguard/postgres:latest`) instead of the stock
+  `postgres:<version>` image assumed implicitly above. Init SQL (`database/init/*.sql`, currently
+  just the `citext` extension needed by `users.email`, §5) is baked into the image at
+  `/var/lib/postgres/initdb/` — Chainguard's entrypoint reads from that path, not the
+  `/docker-entrypoint-initdb.d/` path the official postgres image uses — and only runs against a
+  freshly-initialized (empty) `PGDATA`. Alpine's official `postgres:<version>-alpine` is the
+  documented fallback if a needed extension is ever missing from Wolfi.
+- **`worker` image** [not yet built]: same codebase/base image as `backend`, different entrypoint —
+  processes background jobs (CSV import parsing, email sending) off a queue, so a large upload
+  never blocks a request-handling process. Keeping the same base image avoids dependency drift
+  between the two.
+- **`frontend`** [not yet built]: the Angular production build (`npm run build`) served as static
+  files — **not** through a Python container. Locally/on a single server, Nginx serves the built
+  assets; in the cloud, they go to object storage + CDN (§7) since static assets don't need compute.
+- Config exclusively via environment variables (12-factor) — `backend`'s `Settings`
+  (`app/config.py`) reads a `POSTGRES_PASSWORD_FILE` path mirroring the `database` image's own
+  Docker-secret convention, so the same code path handles a plain env var locally and a mounted
+  secret in staging/prod (§7) unchanged; no secrets baked into images. Images aren't yet tagged by
+  git SHA — compose currently builds and tags them `:local`.
 
 ---
 
@@ -212,9 +293,26 @@ file directly. Both paths build from the *same* Dockerfiles, which is the actual
 
 ### docker-compose (local dev + single server)
 
-Services: `backend`, `worker`, `postgres`, `redis` (job queue + refresh-token/rate-limit cache),
-`frontend` (Nginx serving the built static bundle), and a reverse proxy (Traefik or Caddy) doing
-automatic TLS via Let's Encrypt on the single-server path.
+**Built**, as a base file + per-environment overlay rather than one monolithic file:
+`docker-compose.yml` defines the `db` and `backend` services (build context, healthchecks, the
+shared `shopping-analysis` network) and is never run alone; `docker-compose.dev.yml` /
+`docker-compose.staging.yml` / `docker-compose.prod.yml` layer environment-specific config on top
+via `-f`:
+
+- **dev**: plain password via `.env.dev`, Postgres port published to the host for local
+  `psql`/DBeaver access, source-mounted `backend/app` + `backend/alembic` with `uvicorn --reload`,
+  disposable volume. `start.sh` at the repo root wraps
+  `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` as the one-command dev
+  entrypoint.
+- **staging**: mirrors prod's secret handling (Docker secret file, not a plain env var) and network
+  isolation — no host port on `db`, so it's only reachable from other containers.
+- **prod**: same secret-file pattern as staging, `restart: always`, and explicit CPU/memory
+  `deploy.resources` limits+reservations; `backend` still exposes port 8000 as this is the
+  single-server path (no separate reverse proxy container yet — see below).
+
+**Not yet built**: a `worker` service, `redis` (job queue + refresh-token/rate-limit cache), a
+`frontend` service (Nginx serving the built static bundle), and a reverse proxy (Traefik or Caddy)
+doing automatic TLS via Let's Encrypt. Today's compose stack is DB + API only.
 
 ### Cloud path — GCP (recommended) vs AWS
 

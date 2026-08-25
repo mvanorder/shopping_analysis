@@ -51,6 +51,11 @@ python_version = "3.12"
 
 [tool.pylint.main]
 py-version = "3.12"
+# alembic/: `op.*`/`context.*` are populated dynamically at runtime (pylint's
+# static analysis can't see them, hence spurious no-member errors), and
+# generated migrations' revision/down_revision/etc. identifiers are lowercase
+# because Alembic's own tooling requires that exact name, not a style choice.
+ignore-paths = ["^alembic[/\\\\].*$"]
 
 [tool.pylint.format]
 max-line-length = 100
