@@ -29,8 +29,9 @@ Project items needed per week or month. *(Not yet implemented.)*
 - **`backend/`** — FastAPI service backed by Postgres via SQLAlchemy's async engine, with
   Alembic managing schema migrations. See [`backend/CLAUDE.md`](backend/CLAUDE.md) for
   details and conventions.
-- **`frontend/`** — Angular app (`shopping-analysis`) intended for visualizing the analysis.
-  Currently a fresh `ng new` scaffold with no app-specific code yet.
+- **`frontend/`** — Expo (React Native + TypeScript) app intended for visualizing the
+  analysis, targeting iOS, Android, and web from one codebase. Currently a fresh
+  `create-expo-app` scaffold with no app-specific code yet.
 - **`database/`** — Postgres image (`database/Dockerfile`) and init scripts run on first
   container start.
 - Sample data exports (currently Walmart-only) and the exploratory notebook live locally

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This repo analyzes personal Walmart order history. It has two parts:
 
 - **Root**: raw data exports (in `sample_data/`) and a (currently empty) Jupyter notebook (`shoppping.ipynb`) intended for data collection and categorization work — see `README.md`'s two-step outline (data collection, then categorization).
-- **`frontend/`**: an Angular application (project name `shopping-analysis`) scaffolded for building an analysis/visualization UI on top of the exported data. It's a fresh `ng new` scaffold with no app-specific code yet.
+- **`frontend/`**: an Expo (React Native) app scaffolded for building an analysis/visualization UI on top of the exported data, targeting iOS, Android, and web from one codebase. It's a fresh `create-expo-app` scaffold (default tabs template) with no app-specific code yet.
 
 ## Data files (`sample_data/`)
 
@@ -22,12 +22,12 @@ Ignore `extra_files/` — it holds older exports (including an orders-level file
 
 ## Frontend (`frontend/`)
 
-Standard Angular CLI 22 app (standalone components, `@angular/build` builder, Vitest for unit tests). Run all commands from `frontend/`:
+Expo (React Native + TypeScript) app using Expo Router for file-based navigation (`src/app/`), so the same codebase runs as a native iOS/Android app and as a web build. Run all commands from `frontend/`:
 
-- `npm start` — dev server (`ng serve`)
-- `npm run build` — production build, output to `frontend/dist/shopping-analysis`
-- `npm run watch` — dev build in watch mode
-- `npm test` — unit tests (Vitest via `ng test`)
-- `npx ng generate component <name>` — scaffold a new component
+- `npm start` — Expo dev server (Metro); scan the QR code with Expo Go, or press `i`/`a`/`w` for iOS/Android/web
+- `npm run ios` / `npm run android` / `npm run web` — start dev server targeting a specific platform
+- `npm run lint` — `expo lint`
 
-The Angular project is registered as `shopping-analysis` in `angular.json`/`package.json` even though the directory is `frontend`. There's no routing/state/data-loading code yet — `app.routes.ts` is empty and there's no HTTP client or service wired up to read the CSV data.
+Note: `frontend/AGENTS.md` warns that Expo's API has changed since training data cutoffs and points at the versioned docs (`https://docs.expo.dev/versions/v57.0.0/`) — check those before relying on remembered Expo APIs.
+
+There's no routing/state/data-loading code yet beyond the template's default tabs (`src/app/index.tsx`, `src/app/explore.tsx`) — no HTTP client or service wired up to read the CSV data.

@@ -1,59 +1,57 @@
 # Frontend
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.1.4.
+Expo (React Native + TypeScript) app for visualizing personal shopping order history — the
+analysis/visualization UI described in the [repo root README](../README.md). Built with
+[Expo Router](https://docs.expo.dev/router/introduction) for file-based navigation, so the
+same codebase targets iOS, Android, and web.
 
-## Development server
+There's no data-loading or analysis UI wired up yet — this is still the default Expo Router
+tabs template (`src/app/index.tsx`, `src/app/explore.tsx`).
 
-To start a local development server, run:
+## Get started
 
-```bash
-ng serve
-```
+1. Install dependencies
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+   ```bash
+   npm install
+   ```
 
-## Code scaffolding
+2. Start the app
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+   ```bash
+   npm start
+   ```
 
-```bash
-ng generate component component-name
-```
+   Or target a platform directly:
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+   ```bash
+   npm run ios
+   npm run android
+   npm run web
+   ```
 
-```bash
-ng generate --help
-```
+In the output, you'll find options to open the app in a
 
-## Building
+- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
+- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
+- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
+- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
-To build the project run:
+Routes live in `src/app/`, using Expo's [file-based routing](https://docs.expo.dev/router/introduction).
 
-```bash
-ng build
-```
+## Other commands
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+- `npm run lint` — `expo lint`
 
-## Running unit tests
+## Notes for future work
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+- Expo's APIs have changed since older training data — check the versioned docs at
+  [docs.expo.dev/versions/v57.0.0](https://docs.expo.dev/versions/v57.0.0/) before relying on
+  remembered APIs (also called out in [`AGENTS.md`](AGENTS.md)).
+- No HTTP client or service is wired up yet to read data from the backend
+  (`POST /orders/upload`, see [`backend/CLAUDE.md`](../backend/CLAUDE.md)).
 
-```bash
-ng test
-```
+## Learn more
 
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+- [Expo documentation](https://docs.expo.dev/): fundamentals and [guides](https://docs.expo.dev/guides).
+- [Expo Router documentation](https://docs.expo.dev/router/introduction/): file-based routing used by this app.
