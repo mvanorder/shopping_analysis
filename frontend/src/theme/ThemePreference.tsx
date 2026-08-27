@@ -28,11 +28,13 @@ type ThemePreference = {
   /** Pick a mode explicitly (also persists it). */
   setMode: (mode: ThemeMode) => void;
   /**
-   * Flip between light and dark, pinning the result. Never lands on `'system'` -
-   * a deliberate tap means "I want this appearance", so it stops tracking the OS
-   * until the user picks `'system'` again via {@link setMode}.
+   * Step to the next mode in a three-stop cycle that always starts at
+   * `'system'`, then visits the two pinned schemes. The OS appearance is
+   * offered last of the two so the *other* scheme is one tap away:
+   * - OS is dark  -> `system` -> `light` -> `dark` -> `system` -> ...
+   * - OS is light -> `system` -> `dark` -> `light` -> `system` -> ...
    */
-  toggle: () => void;
+  cycle: () => void;
 };
 
 const ThemePreferenceContext = createContext<ThemePreference | null>(null);
@@ -78,13 +80,22 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
 
   const scheme: ColorScheme = mode === 'system' ? systemScheme : mode;
 
-  const toggle = useCallback(() => {
-    setMode(scheme === 'dark' ? 'light' : 'dark');
-  }, [scheme, setMode]);
+  const cycle = useCallback(() => {
+    // Pin the scheme opposite the OS first, then the OS scheme, then back to
+    // 'system' - so whichever appearance the OS isn't giving you is always the
+    // very next tap from 'system'.
+    const order: ThemeMode[] = [
+      'system',
+      systemScheme === 'dark' ? 'light' : 'dark',
+      systemScheme,
+    ];
+    const next = order[(order.indexOf(mode) + 1) % order.length];
+    setMode(next);
+  }, [mode, systemScheme, setMode]);
 
   const value = useMemo<ThemePreference>(
-    () => ({ mode, scheme, isReady, setMode, toggle }),
-    [mode, scheme, isReady, setMode, toggle],
+    () => ({ mode, scheme, isReady, setMode, cycle }),
+    [mode, scheme, isReady, setMode, cycle],
   );
 
   return (

@@ -1,37 +1,78 @@
-import { StyleSheet } from 'react-native';
-import { IconButton } from 'react-native-paper';
+import { StyleSheet, View } from 'react-native';
+import { Icon, Text, TouchableRipple } from 'react-native-paper';
 
-import { layout, useAppTheme, useThemePreference } from '@/theme';
+import { layout, radius, spacing, useAppTheme, useThemePreference } from '@/theme';
+
+const SCHEME_ICON = {
+  light: 'weather-sunny',
+  dark: 'weather-night',
+} as const;
 
 /**
- * Light/dark switch for the top bar. Shows the icon of the scheme currently in
- * effect; tapping it flips to the other one and pins that choice (see
- * `useThemePreference().toggle`). Announced as a switch so assistive tech reads
- * the on/off state, not just "button".
+ * Theme control for the top bar. Cycles `system -> ... -> system` (see
+ * `useThemePreference().cycle`). The icon always shows the scheme in effect
+ * right now; in `system` mode an "Auto" tag sits beside it so it's clear the
+ * app is following the OS - the icon draws the eye to *which* theme that is,
+ * the tag keeps the "system default" fact visible.
  */
 export function ThemeToggle() {
   const theme = useAppTheme();
-  const { scheme, toggle } = useThemePreference();
-  const isDark = scheme === 'dark';
+  const { mode, scheme, cycle } = useThemePreference();
+  const isSystem = mode === 'system';
+
+  const schemeName = scheme === 'dark' ? 'dark' : 'light';
+  const accessibilityLabel = isSystem
+    ? `Theme: system default (${schemeName})`
+    : `Theme: ${schemeName}`;
 
   return (
-    <IconButton
-      icon={isDark ? 'weather-night' : 'weather-sunny'}
-      size={22}
-      onPress={toggle}
-      iconColor={theme.colors.onSurfaceVariant}
-      style={styles.button}
-      accessibilityRole="switch"
-      accessibilityState={{ checked: isDark }}
-      accessibilityLabel={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
-    />
+    <TouchableRipple
+      onPress={cycle}
+      borderless
+      style={[
+        styles.button,
+        isSystem && {
+          backgroundColor: theme.colors.surfaceVariant,
+          borderColor: theme.colors.outline,
+        },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint="Cycles between system, light and dark themes"
+    >
+      <View style={styles.content}>
+        <Icon source={SCHEME_ICON[schemeName]} size={20} color={theme.colors.onSurface} />
+        {isSystem ? (
+          <Text
+            variant="labelSmall"
+            style={[styles.autoTag, { color: theme.colors.onSurfaceVariant }]}
+          >
+            Auto
+          </Text>
+        ) : null}
+      </View>
+    </TouchableRipple>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    margin: 0,
-    width: layout.minTouchTarget,
+    minWidth: layout.minTouchTarget,
     height: layout.minTouchTarget,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'transparent',
+    justifyContent: 'center',
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xxs,
+    paddingHorizontal: spacing.sm,
+  },
+  autoTag: {
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
 });
