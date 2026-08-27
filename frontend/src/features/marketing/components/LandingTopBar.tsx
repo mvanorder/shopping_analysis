@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { layout, radius, spacing, useAppTheme, useResponsive } from '@/theme';
 
 import { BrandMark } from './BrandMark';
+import { ThemeToggle } from './ThemeToggle';
 
 type LandingTopBarProps = {
   onGetStarted: () => void;
@@ -36,19 +37,24 @@ export function LandingTopBar({ onGetStarted }: LandingTopBarProps) {
       ]}
     >
       <View style={styles.inner}>
-        <BrandMark />
-        <Button
-          mode="contained"
-          onPress={onGetStarted}
-          compact={isCompact}
-          style={styles.cta}
-          contentStyle={styles.ctaContent}
-          labelStyle={styles.ctaLabel}
-          accessibilityRole="button"
-          accessibilityLabel="Get started with Shopping Analysis"
-        >
-          Get started
-        </Button>
+        {/* Drop the wordmark on phones so the brand mark, theme toggle and CTA
+            all fit on one row without the label wrapping. */}
+        <BrandMark showWordmark={!isCompact} />
+        <View style={styles.actions}>
+          <ThemeToggle />
+          <Button
+            mode="contained"
+            onPress={onGetStarted}
+            compact={isCompact}
+            style={styles.cta}
+            contentStyle={styles.ctaContent}
+            labelStyle={styles.ctaLabel}
+            accessibilityRole="button"
+            accessibilityLabel="Get started with Shopping Analysis"
+          >
+            Get started
+          </Button>
+        </View>
       </View>
     </Surface>
   );
@@ -68,6 +74,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   cta: {
     borderRadius: radius.pill,

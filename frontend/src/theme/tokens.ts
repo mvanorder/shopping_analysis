@@ -16,7 +16,29 @@
  *   (it is also the splash-screen colour in app.json).
  * - `accent` is a touch deeper than the raw `#B4650A` so the small "due soon"
  *   badge label reaches 5.0:1 on `accentContainer` instead of 4.0:1.
+ *
+ * `darkPalette` mirrors every key for the dark theme. The same contrast rules
+ * hold there: `primary` is light enough to carry `onPrimary` (near-black) text,
+ * `onSurface`/`onSurfaceVariant` clear AA against `background`, and `accent`
+ * reads on `accentContainer`.
  */
+
+/** Every colour role the app themes. Both palettes below satisfy this shape. */
+export type Palette = {
+  primary: string;
+  primaryBright: string;
+  onPrimary: string;
+  primaryContainer: string;
+  onPrimaryContainer: string;
+  background: string;
+  surface: string;
+  surfaceMuted: string;
+  onSurface: string;
+  onSurfaceVariant: string;
+  outline: string;
+  accent: string;
+  accentContainer: string;
+};
 
 export const palette = {
   /** Accessible brand blue - use for anything that carries white text. */
@@ -39,7 +61,30 @@ export const palette = {
   /** Urgency accent - only used by "due soon" badges. */
   accent: '#9A5709',
   accentContainer: '#FFF1DB',
-} as const;
+} as const satisfies Palette;
+
+export const darkPalette = {
+  /** Lightened brand blue - carries near-black `onPrimary` text at ~9:1. */
+  primary: '#8EC7F7',
+  /** Raw brand blue. Decorative fills only (brand mark, splash). */
+  primaryBright: '#208AEF',
+  onPrimary: '#03263F',
+  primaryContainer: '#0B4A82',
+  onPrimaryContainer: '#CFE6FB',
+
+  background: '#0E161C',
+  surface: '#161F26',
+  /** Slightly lifted surface for inset panels (stat chips, list rows). */
+  surfaceMuted: '#1D2831',
+
+  onSurface: '#E6EDF3',
+  onSurfaceVariant: '#AAB8C3',
+  outline: '#33424D',
+
+  /** Urgency accent - only used by "due soon" badges. */
+  accent: '#F3C08D',
+  accentContainer: '#3E2A13',
+} as const satisfies Palette;
 
 /** 4pt spacing scale. Never hand-pick a value outside this. */
 export const spacing = {
