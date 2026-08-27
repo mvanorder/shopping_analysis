@@ -5,8 +5,10 @@ analysis/visualization UI described in the [repo root README](../README.md). Bui
 [Expo Router](https://docs.expo.dev/router/introduction) for file-based navigation, so the
 same codebase targets iOS, Android, and web.
 
-There's no data-loading or analysis UI wired up yet — this is still the default Expo Router
-tabs template (`src/app/index.tsx`, `src/app/explore.tsx`).
+The app currently renders a single public marketing landing page (`src/app/index.tsx` →
+`src/features/marketing/LandingScreen.tsx`, composed from `src/features/marketing/components/`).
+Shared design tokens, the Paper theme, fonts, and responsive/accessibility helpers live in
+`src/theme/`. No data-loading or analysis UI is wired up yet.
 
 ## Get started
 
