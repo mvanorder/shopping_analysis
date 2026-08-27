@@ -1,0 +1,32 @@
+import { useEffect } from 'react';
+import { Platform } from 'react-native';
+
+const STYLE_ID = 'shopping-analysis-focus-ring';
+
+/**
+ * react-native-web renders touchables as `div`s with `outline: none` applied
+ * inline, so keyboard users get no visible focus indicator out of the box.
+ * Inject one global `:focus-visible` rule (mouse/touch presses are unaffected
+ * because `:focus-visible` only matches keyboard-driven focus).
+ *
+ * No-op on native, and safe during static web prerendering where `document`
+ * does not exist.
+ */
+export function useWebFocusRing(color: string) {
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (typeof document === 'undefined') return;
+    if (document.getElementById(STYLE_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = `
+      :focus:not(:focus-visible) { outline: none !important; }
+      :focus-visible {
+        outline: 3px solid ${color} !important;
+        outline-offset: 2px !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }, [color]);
+}
