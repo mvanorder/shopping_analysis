@@ -10,16 +10,20 @@ const STYLE_ID = 'shopping-analysis-focus-ring';
  * because `:focus-visible` only matches keyboard-driven focus).
  *
  * No-op on native, and safe during static web prerendering where `document`
- * does not exist.
+ * does not exist. Re-runs when `color` changes (e.g. light <-> dark) so the
+ * ring keeps contrast against the new background.
  */
 export function useWebFocusRing(color: string) {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (typeof document === 'undefined') return;
-    if (document.getElementById(STYLE_ID)) return;
 
-    const style = document.createElement('style');
-    style.id = STYLE_ID;
+    let style = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
+    if (!style) {
+      style = document.createElement('style');
+      style.id = STYLE_ID;
+      document.head.appendChild(style);
+    }
     style.textContent = `
       :focus:not(:focus-visible) { outline: none !important; }
       :focus-visible {
@@ -27,6 +31,5 @@ export function useWebFocusRing(color: string) {
         outline-offset: 2px !important;
       }
     `;
-    document.head.appendChild(style);
   }, [color]);
 }
