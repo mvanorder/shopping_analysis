@@ -1,6 +1,6 @@
 ---
-name: code-reviewer
-description: Use this agent to review source files or the current git diff for readability, security, and best-practices issues. Invoke it after writing or changing code, before committing, or whenever the user asks for a code review. It is read-only — it never edits files or runs mutating commands, only reports findings.
+name: backend-code-reviewer
+description: Use this agent to review backend/data code (Python, Jupyter notebooks, data-pipeline and CSV-processing scripts) or the current git diff for readability, security, and best-practices issues. Invoke it after writing or changing backend code, before committing, or whenever the user asks for a backend code review. It is read-only — it never edits files or runs mutating commands, only reports findings. For frontend/Expo changes, use frontend-code-reviewer instead.
 tools: Read, Grep, Glob, Bash(git diff:*), Bash(git status:*), Bash(git log:*), Bash(git show:*)
 model: sonnet
 ---
