@@ -1,0 +1,171 @@
+# Merge gate: runs the same checks the Claude Code hooks run locally
+# (.claude/hooks/post_edit_lint.py, .claude/hooks/stop_check.py), plus the
+# gates that are configured in backend/pyproject.toml but never enforced
+# anywhere today (mypy, coverage).
+#
+# Mark ONLY the `ci-passed` job as a required status check on master. The
+# language jobs are path-filtered and legitimately skip on unrelated PRs; a
+# skipped job never reports a status, so requiring one directly would leave
+# PRs permanently blocked on an "expected" check that never arrives.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      # When the filter step is skipped (push events), these fall back to
+      # 'true' so a merge to master always runs the full suite. GitHub treats
+      # an empty string as falsy and any non-empty string — including
+      # 'false' — as truthy, so a real 'false' from the filter is preserved.
+      backend: ${{ steps.filter.outputs.backend || 'true' }}
+      frontend: ${{ steps.filter.outputs.frontend || 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
+  backend:
+    name: Backend (ruff, pylint, mypy, pytest)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          working-directory: backend
+
+      # --frozen matches backend/Dockerfile's contract: fail loudly rather
+      # than silently re-resolving if pyproject.toml and uv.lock have drifted.
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: ruff
+        run: uv run ruff check app tests
+
+      # Scoped to app/ deliberately, matching hooks_common.lint_files. Running
+      # pylint over tests/ currently scores 9.10/10 (missing module docstrings,
+      # protected-access in test_config.py); widening this is a follow-up that
+      # needs those cleaned up first.
+      - name: pylint
+        run: uv run pylint app
+
+      - name: mypy
+        run: uv run mypy app
+
+      # No Postgres service container by design: tests/conftest.py overrides
+      # the get_db dependency with tests.fakes.FakeAsyncSession, and
+      # docs/design/uac-design.md sec. 5 records that test_models.py asserts
+      # schema shape against Base.metadata with no live DB, for fast CI.
+      #
+      # Coverage thresholds come from pyproject.toml's addopts
+      # (--cov-fail-under=90), not from a flag here, so local and CI runs
+      # enforce the identical number.
+      - name: pytest
+        shell: bash
+        run: uv run pytest | tee pytest.log
+
+      - name: Publish coverage to job summary
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -f pytest.log ]; then
+            echo "No pytest.log - the test step did not run." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo '### Backend coverage'
+            echo
+            echo '```'
+            sed -n '/^Name .*Stmts/,/^TOTAL/p' pytest.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  frontend:
+    name: Frontend (eslint, tsc, jest)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # tsconfig.json includes .expo/types/**/*.ts and expo-env.d.ts, both of
+      # which are gitignored and normally written by the dev server. Expo's
+      # typed-routes docs name this command as the CI substitute for starting
+      # one; without it, tsc fails on missing route and asset declarations.
+      - name: Generate Expo type declarations
+        run: npx expo customize tsconfig.json
+
+      - name: tsc
+        run: npx tsc --noEmit
+
+      - name: eslint
+        run: npm run lint
+
+      - name: jest
+        run: npm test -- --ci
+
+  # The single required status check. Aggregates the path-filtered jobs so a
+  # docs-only PR (README.md, docs/, CLAUDE.md) passes with both language jobs
+  # skipped, while any genuine failure still blocks the merge.
+  ci-passed:
+    name: CI passed
+    needs: [changes, backend, frontend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no required job failed
+        shell: bash
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "Job results: $results"
+          for result in $results; do
+            case "$result" in
+              success|skipped) ;;
+              *)
+                echo "::error::A required job did not pass (result: $result)"
+                exit 1
+                ;;
+            esac
+          done
+          echo "All required jobs passed or were skipped."
