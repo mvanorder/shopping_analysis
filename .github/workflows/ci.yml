@@ -142,8 +142,28 @@ jobs:
       - name: tsc
         run: npx tsc --noEmit
 
+      # `expo lint` prints nothing on a clean run, which in the log is
+      # indistinguishable from not linting at all - and this gate really was
+      # vacuous for its first two runs, passing while inspecting zero files.
+      # So assert a non-zero file count: the log now carries positive evidence
+      # of what was checked, and any regression to the no-op state fails loudly
+      # instead of passing quietly.
       - name: eslint
-        run: npm run lint
+        shell: bash
+        run: |
+          npm run lint
+          npx eslint . --format json > "$RUNNER_TEMP/eslint-report.json"
+          node -e '
+            const report = require(process.env.RUNNER_TEMP + "/eslint-report.json");
+            const errors = report.reduce((n, f) => n + f.errorCount, 0);
+            const warnings = report.reduce((n, f) => n + f.warningCount, 0);
+            console.log(`eslint linted ${report.length} file(s): ${errors} error(s), ${warnings} warning(s)`);
+            for (const f of report) console.log("  " + f.filePath);
+            if (report.length === 0) {
+              console.error("::error::eslint linted 0 files - the lint gate is not checking anything");
+              process.exit(1);
+            }
+          '
 
       - name: jest
         run: npm test -- --ci
