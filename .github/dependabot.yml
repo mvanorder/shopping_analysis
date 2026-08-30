@@ -1,0 +1,110 @@
+# Automated dependency updates.
+#
+# Patch and minor updates are grouped into one PR per ecosystem and auto-merged
+# by .github/workflows/dependabot-auto-merge.yml once `ci-passed` goes green.
+# Major updates arrive as individual PRs and stay manual - they are exactly the
+# ones that need a human to read a changelog.
+#
+# The schedules are staggered across the week deliberately. Branch protection
+# requires branches be up to date before merging, so four ecosystems opening PRs
+# on the same morning would each need a rebase as the others landed, serializing
+# four CI runs to no benefit.
+version: 2
+
+updates:
+  # ---------------------------------------------------------------- actions --
+  # The actions used by ci.yml and claude-review.yml.
+  #
+  # astral-sh/setup-uv is pinned to an exact version rather than a floating
+  # major, because no floating major tag exists past v7 (see ci.yml). Dependabot
+  # bumping that pin is precisely how it is meant to move.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions:
+        update-types: ["minor", "patch"]
+
+  # ---------------------------------------------------------------- backend --
+  # Dependabot updates both pyproject.toml and uv.lock. The lockfile is the part
+  # that matters here: ci.yml runs `uv sync --frozen`, which fails rather than
+  # silently re-resolving when the two have drifted.
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    groups:
+      backend:
+        update-types: ["minor", "patch"]
+
+  # --------------------------------------------------------------- frontend --
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    groups:
+      frontend:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Everything below is version-locked to the Expo SDK, not to semver.
+      # `npx expo install --check` is the tool that moves these, as a set, when
+      # the SDK moves - so Dependabot must not touch them individually.
+      #
+      # This is not a theoretical concern. jest-expo is pinned to exactly 57.0.4
+      # in package.json because 57.0.5 - a *patch* release - raised its peer to
+      # @react-native/jest-preset@^0.86.3, which react-native@0.86.2 pins to
+      # exactly 0.86.2. That bump does not install. A patch-level ignore is
+      # therefore the right granularity for this whole family.
+      #
+      # Worth knowing: an `ignore` entry suppresses Dependabot's automatic
+      # security-update PRs for these packages too, not just version updates.
+      # Dependabot *alerts* still fire, so a vulnerability is still surfaced -
+      # you just do not get an individual PR for it, which is correct here,
+      # since such a PR would not install. Respond with an SDK bump
+      # (`npx expo install --fix`) instead.
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
+      - dependency-name: "@expo/*"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-*"
+      - dependency-name: "jest-expo"
+      - dependency-name: "eslint-config-expo"
+
+      # eslint 10 is blocked, not merely unwanted: eslint-config-expo advertises
+      # a peer of `eslint >=8.10` but bundles eslint-plugin-react capped at ^9.7,
+      # and linting under 10.x dies with "Error while loading rule
+      # 'react/display-name': contextOrFilename.getFilename is not a function".
+      # Minor and patch updates within 9.x are still welcome; revisit the major
+      # when eslint-config-expo updates its bundled plugins.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+
+      # @types/react tracks the react major, which Expo pins exactly. Within
+      # 19.x it is safe and `npx tsc --noEmit` in CI checks it.
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+
+  # ----------------------------------------------------------------- docker --
+  # Both Dockerfiles currently use floating `:latest` base images
+  # (cgr.dev/chainguard/python, cgr.dev/chainguard/postgres), and Dependabot has
+  # nothing to bump on an unpinned tag - so these two entries are inert today.
+  # They are here so that pinning a base image to a version or digest, which is
+  # the right thing to do before staging or prod, starts getting updates
+  # immediately instead of needing this file remembered and revisited.
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+
+  - package-ecosystem: "docker"
+    directory: "/database"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
