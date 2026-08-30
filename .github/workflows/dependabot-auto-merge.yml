@@ -1,0 +1,99 @@
+# Auto-merge Dependabot's patch and minor updates.
+#
+# `gh pr merge --auto` does not merge anything itself - it queues the PR to
+# merge once every required status check passes. So `ci-passed` in ci.yml is
+# still the gate; this workflow only removes the manual click for the updates
+# that are routine. Majors are left alone deliberately: they are exactly the
+# ones where someone should read a changelog.
+#
+# PREREQUISITE: auto-merge must be enabled on the repository, and it is not
+# enabled today (`allow_auto_merge: false`). Until the branch-protection step
+# is applied, every run of this workflow will fail on the merge command. Enable
+# it with:
+#
+#   gh api -X PATCH repos/mvanorder/shopping_analysis -F allow_auto_merge=true
+name: Dependabot auto-merge
+
+# `pull_request`, not `pull_request_target`. Dependabot-triggered workflows get
+# a read-only GITHUB_TOKEN by default, and the usual workaround is
+# `pull_request_target` - which runs in the base-branch context with a
+# full-permission token. That is a footgun in workflows that check out PR code,
+# and GitHub's own documented auto-merge example avoids it by declaring the
+# permissions explicitly instead. This workflow checks out nothing at all, so
+# there is no reason to reach for the riskier trigger.
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    # `pull_request.user.login` identifies who opened the PR, which is what
+    # actually matters here. `github.actor` is the triggering actor and can be
+    # someone else on a later `synchronize` event.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v3
+
+      # For a grouped PR, `update-type` is documented as the HIGHEST semver
+      # change in the group. dependabot.yml caps its groups at minor, so a
+      # grouped PR resolves to minor or patch and is covered by this condition
+      # without needing to enumerate its contents.
+      - name: Enable auto-merge for patch and minor updates
+        if: >-
+          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          steps.meta.outputs.update-type == 'version-update:semver-minor'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if ! gh pr merge --auto --squash "$PR_URL"; then
+            echo "::error::Could not enable auto-merge. The most likely cause is" \
+                 "that auto-merge is disabled on this repository - check" \
+                 "'allow_auto_merge' in the repo settings (see the header of" \
+                 "this workflow for the command to enable it)."
+            exit 1
+          fi
+
+      # Majors get no PR comment on purpose - a bot comment on every major bump
+      # is noise. The job summary records the decision where it is visible from
+      # the PR's checks tab, without adding to the conversation.
+      #
+      # Metadata values go through the environment rather than being
+      # interpolated into the script body: they originate from the PR, and
+      # `${{ }}` interpolation splices them into the shell source itself.
+      - name: Record what was decided
+        if: always()
+        env:
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          DEPENDENCY_NAMES: ${{ steps.meta.outputs.dependency-names }}
+          DEPENDENCY_GROUP: ${{ steps.meta.outputs.dependency-group }}
+        shell: bash
+        run: |
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor)
+              decision="Auto-merge enabled - will merge once required checks pass." ;;
+            version-update:semver-major)
+              decision="**Left for manual review** - major version update." ;;
+            *)
+              decision="No action - unrecognized update type." ;;
+          esac
+          {
+            echo '### Dependabot auto-merge'
+            echo
+            echo "- Update type: \`${UPDATE_TYPE:-none}\`"
+            echo "- Group: \`${DEPENDENCY_GROUP:-none (individual PR)}\`"
+            echo "- Dependencies: ${DEPENDENCY_NAMES:-unknown}"
+            echo
+            echo "$decision"
+          } >> "$GITHUB_STEP_SUMMARY"
