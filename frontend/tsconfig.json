@@ -9,7 +9,14 @@
       "@/assets/*": [
         "./assets/*"
       ]
-    }
+    },
+    // Jest's globals (describe/it/expect) are ambient types, and TypeScript was
+    // not picking @types/jest up on its own here, so `npm run typecheck` failed
+    // on the test files with TS2593. Listing it explicitly fixes that and makes
+    // the dependency reviewable rather than implicit.
+    "types": [
+      "jest"
+    ]
   },
   "include": [
     "**/*.ts",
