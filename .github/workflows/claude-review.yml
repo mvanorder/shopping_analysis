@@ -7,6 +7,21 @@
 # The review criteria are NOT duplicated here. They live in
 # .claude/agents/code-reviewer.md, which the checkout makes readable at review
 # time, so the standards used by `/review` locally and by CI stay the same file.
+# GOTCHA: on any PR that modifies THIS file, the action skips itself and the
+# job still reports success - "Skipping action due to workflow validation: the
+# workflow file must exist and have identical content to the version on the
+# repository's default branch." That is deliberate: a PR must not be able to
+# rewrite the workflow that reviews it (widening --allowedTools, or editing the
+# prompt to leak the API key). The cost is a green check that reviewed nothing,
+# so changes to this file are effectively unreviewed until they land on master.
+# Review them by hand, and check the next PR to confirm reviews resumed.
+#
+# If a run ever fails with a bare "result is_error:true" and no reason, the
+# action is hiding the SDK output; `show_full_output: true` is the only switch
+# that reveals it (GitHub debug logging does NOT). That is how the
+# "Credit balance is too low" failure was diagnosed. Add it, capture the error,
+# then remove it again - it prints Claude's full JSON output into a log that
+# anyone with read access can see.
 name: Claude review
 
 on:
@@ -48,21 +63,6 @@ jobs:
       - uses: anthropics/claude-code-action@a874e9ecd7bb36efdad65429c6b35815f5a08f10 # v1.0.210
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # TEMPORARY - diagnostic only, revert once the cause is known.
-          #
-          # The action hides the SDK's output by default ("full output hidden
-          # for security"), so a failing run reports only
-          # "result is_error:true" with no reason. Runs have been failing with
-          # num_turns:1, duration ~450ms and total_cost_usd:0 - i.e. the very
-          # first model call is rejected before anything is billed - and the
-          # actual API error is exactly what is being suppressed. Re-running
-          # with GitHub debug logging does NOT reveal it; this input is the
-          # only switch that does.
-          #
-          # Remove this line once the error is captured: it prints Claude's
-          # full JSON output into the run log, which anyone with read access
-          # to the repo can see.
-          show_full_output: true
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
