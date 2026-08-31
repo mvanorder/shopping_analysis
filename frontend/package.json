@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "jest",
+    "test": "jest --coverage",
     "test:watch": "jest --watchAll"
   },
   "jest": {
@@ -18,7 +18,15 @@
     "collectCoverageFrom": [
       "src/**/*.{ts,tsx}",
       "!src/**/*.d.ts"
-    ]
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 90,
+        "branches": 90,
+        "functions": 90,
+        "lines": 90
+      }
+    }
   },
   "dependencies": {
     "@expo/ui": "~57.0.13",

@@ -52,6 +52,9 @@ read the CSV header row rather than assuming columns.
 - Frontend: from `frontend/`, `npm start` (or `npm run ios` / `android` / `web`);
   `npm run lint` (eslint), `npm run typecheck` (`tsc --noEmit`) and `npm test`
   (jest-expo + React Native Testing Library) are the three gates CI runs.
+  `npm test` runs `jest --coverage` and enforces the 90% `coverageThreshold`
+  in `frontend/package.json`, mirroring the backend's `--cov-fail-under=90`;
+  `npm run test:watch` deliberately omits coverage.
 - Full stack in Docker: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`.
 
 ## CI
@@ -106,6 +109,10 @@ together — do not convert them back to tags.
 **A passing check is not evidence that a gate ran.** Three checks here have reported success
 while verifying nothing: `expo lint` bootstrapping a config and exiting 0 without linting,
 `ci-passed` aggregating an all-skipped run, and the review workflow self-skipping. The
-eslint step asserts a non-zero file count for exactly this reason. When you add or change a
+eslint step asserts a non-zero file count for exactly this reason. The frontend
+coverage threshold has the same shape of exposure: it is only enforced because
+`npm test` carries `--coverage`, so rewriting the CI step to `npx jest --ci`
+would silently stop collecting coverage and the 90% gate would quietly stop
+applying. When you add or change a
 gate, prove it can fail — plant a violation, watch it go red — and read the step log to
 confirm it says what you expect.
