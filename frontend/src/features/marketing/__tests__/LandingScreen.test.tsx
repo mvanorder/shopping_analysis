@@ -16,6 +16,10 @@ jest.mock('react-native/Libraries/Utilities/useWindowDimensions');
 // lands outside React's act() window ("not wrapped in act"). This screen only
 // uses it as a plain acknowledgement, so a synchronous stand-in keeps the
 // visible / dismiss / action behaviour the tests check without the noise.
+//
+// The override goes through a Proxy rather than `{ ...Actual }`: Paper's entry
+// point is ~50 lazy re-export getters, and spreading forces every component
+// (and its deps) to load up front - enough to time a slow filesystem out.
 // (jest.mock factories are hoisted above imports, so they must `require`.)
 jest.mock('react-native-paper', () => {
   /* eslint-disable @typescript-eslint/no-require-imports */
@@ -43,7 +47,9 @@ jest.mock('react-native-paper', () => {
       </View>
     );
   };
-  return { ...Actual, Snackbar };
+  return new Proxy(Actual, {
+    get: (target, prop) => (prop === 'Snackbar' ? Snackbar : target[prop]),
+  });
 });
 
 const mockedUseWindowDimensions = jest.mocked(useWindowDimensions);
