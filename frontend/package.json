@@ -53,7 +53,7 @@
     "eslint-config-expo": "~57.0.2",
     "jest": "~30.5.0",
     "jest-expo": "57.0.4",
-    "typescript": "~6.0.3"
+    "typescript": "~7.0.2"
   },
   "private": true
 }
