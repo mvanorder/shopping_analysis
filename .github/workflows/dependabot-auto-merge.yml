@@ -40,15 +40,18 @@ jobs:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
+      # Actions are SHA-pinned; see the header of ci.yml for why. That pinning
+      # exists specifically because of this workflow.
       - name: Fetch Dependabot metadata
         id: meta
-        uses: dependabot/fetch-metadata@v3
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
 
       # For a grouped PR, `update-type` is documented as the HIGHEST semver
       # change in the group. dependabot.yml caps its groups at minor, so a
       # grouped PR resolves to minor or patch and is covered by this condition
       # without needing to enumerate its contents.
       - name: Enable auto-merge for patch and minor updates
+        id: merge
         if: >-
           steps.meta.outputs.update-type == 'version-update:semver-patch' ||
           steps.meta.outputs.update-type == 'version-update:semver-minor'
@@ -78,15 +81,27 @@ jobs:
           UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
           DEPENDENCY_NAMES: ${{ steps.meta.outputs.dependency-names }}
           DEPENDENCY_GROUP: ${{ steps.meta.outputs.dependency-group }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
         shell: bash
         run: |
-          case "$UPDATE_TYPE" in
-            version-update:semver-patch|version-update:semver-minor)
+          # Branch on what actually happened, not on what was intended. This
+          # step runs `if: always()`, so deriving the message from UPDATE_TYPE
+          # alone would report "auto-merge enabled" on a run where the merge
+          # command failed - which, while allow_auto_merge is off, is the only
+          # message a patch/minor PR would ever produce.
+          case "$MERGE_OUTCOME" in
+            success)
               decision="Auto-merge enabled - will merge once required checks pass." ;;
-            version-update:semver-major)
-              decision="**Left for manual review** - major version update." ;;
+            failure)
+              decision="**Auto-merge could NOT be enabled** - see the merge step log." ;;
             *)
-              decision="No action - unrecognized update type." ;;
+              # Merge step skipped: fall back to why it was skipped.
+              case "$UPDATE_TYPE" in
+                version-update:semver-major)
+                  decision="**Left for manual review** - major version update." ;;
+                *)
+                  decision="No action - unrecognized update type." ;;
+              esac ;;
           esac
           {
             echo '### Dependabot auto-merge'

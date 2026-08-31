@@ -3,6 +3,15 @@
 # gates that are configured in backend/pyproject.toml but never enforced
 # anywhere today (mypy, coverage).
 #
+# Every action is pinned to a commit SHA with the version in a trailing
+# comment, rather than to a tag. Dependabot's `github-actions` updates are
+# auto-merged (.github/workflows/dependabot-auto-merge.yml), so an action bump
+# can reach master without a human reading it - and actions run with this
+# repo's credentials. A tag is mutable and can be repointed after review; a SHA
+# names an immutable object, so the auto-merged diff is exactly what runs.
+# Dependabot updates the SHA and the comment together, so this costs nothing to
+# maintain - do not "tidy" these back into tags.
+#
 # Mark ONLY the `ci-passed` job as a required status check on master. The
 # language jobs are path-filtered and legitimately skip on unrelated PRs; a
 # skipped job never reports a status, so requiring one directly would leave
@@ -33,9 +42,9 @@ jobs:
       backend: ${{ steps.filter.outputs.backend || 'true' }}
       frontend: ${{ steps.filter.outputs.frontend || 'true' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         if: github.event_name == 'pull_request'
         with:
@@ -56,12 +65,12 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Exact version pin, not a floating major: astral-sh/setup-uv stopped
-      # publishing floating major tags after v7, so `@v10` does not resolve
-      # even though v10.0.1 is the current release. Bump this deliberately.
-      - uses: astral-sh/setup-uv@v10.0.1
+      # Note for anyone restoring a tag here: setup-uv stopped publishing
+      # floating major tags after v7, so `@v10` does not resolve at all even
+      # though v10.0.1 is the current release. The SHA sidesteps that entirely.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           working-directory: backend
@@ -121,9 +130,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
