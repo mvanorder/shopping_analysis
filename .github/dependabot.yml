@@ -73,6 +73,12 @@ updates:
       - dependency-name: "react-dom"
       - dependency-name: "react-native"
       - dependency-name: "react-native-*"
+      # Scoped native modules that `npx expo install` manages alongside the SDK.
+      # async-storage is exact-pinned (2.2.0) for exactly this reason; the
+      # vector-icons font package needs a native rebuild CI never does. The
+      # unscoped `react-native-*` glob above does not match either name.
+      - dependency-name: "@react-native-async-storage/*"
+      - dependency-name: "@react-native-vector-icons/*"
       - dependency-name: "jest-expo"
       - dependency-name: "eslint-config-expo"
 

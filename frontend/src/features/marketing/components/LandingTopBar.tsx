@@ -31,8 +31,10 @@ export function LandingTopBar({ onGetStarted }: LandingTopBarProps) {
           backgroundColor: theme.colors.surface,
           borderBottomColor: theme.colors.outline,
           paddingTop: insets.top + spacing.xs,
-          paddingLeft: Math.max(gutter, insets.left),
-          paddingRight: Math.max(gutter, insets.right),
+          // Same formula as Section, so the brand mark lines up with every
+          // section's content edge (notch insets included, in landscape).
+          paddingLeft: gutter + insets.left,
+          paddingRight: gutter + insets.right,
         },
       ]}
     >

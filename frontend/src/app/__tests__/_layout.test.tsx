@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react-native';
+import { render, waitFor } from '@testing-library/react-native';
 import * as ReactNative from 'react-native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
@@ -23,6 +23,7 @@ jest.mock('expo-splash-screen', () => ({
 }));
 
 const mockedUseFonts = jest.mocked(useFonts);
+const mockedStack = jest.mocked(Stack);
 
 describe('RootLayout', () => {
   beforeEach(() => {
@@ -30,32 +31,45 @@ describe('RootLayout', () => {
     mockedUseFonts.mockReturnValue([true, null]);
   });
 
-  it('renders the expo-router stack once the fonts have loaded', async () => {
-    await render(<RootLayout />);
-
-    expect(jest.mocked(Stack)).toHaveBeenCalled();
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
-  it('hides the splash screen after mount', async () => {
+  it('renders the expo-router stack', async () => {
     await render(<RootLayout />);
 
-    expect(SplashScreen.hideAsync).toHaveBeenCalled();
+    expect(mockedStack).toHaveBeenCalled();
   });
 
-  it('renders nothing until the fonts resolve', () => {
+  it('renders real markup even before the fonts have loaded, so the static web export is not blank', async () => {
     mockedUseFonts.mockReturnValue([false, null]);
 
-    render(<RootLayout />);
+    await render(<RootLayout />);
 
-    expect(jest.mocked(Stack)).not.toHaveBeenCalled();
+    expect(mockedStack).toHaveBeenCalled();
   });
 
-  it('still renders when the fonts fail to load', async () => {
+  it('holds the splash screen until the fonts are settled', async () => {
+    mockedUseFonts.mockReturnValue([false, null]);
+
+    await render(<RootLayout />);
+
+    expect(SplashScreen.hideAsync).not.toHaveBeenCalled();
+  });
+
+  it('hides the splash screen once the fonts have loaded', async () => {
+    await render(<RootLayout />);
+
+    await waitFor(() => expect(SplashScreen.hideAsync).toHaveBeenCalled());
+  });
+
+  it('treats a font-load error as settled and dismisses the splash', async () => {
     mockedUseFonts.mockReturnValue([false, new Error('font 404')]);
 
     await render(<RootLayout />);
 
-    expect(jest.mocked(Stack)).toHaveBeenCalled();
+    expect(mockedStack).toHaveBeenCalled();
+    await waitFor(() => expect(SplashScreen.hideAsync).toHaveBeenCalled());
   });
 
   it('selects the dark Paper theme when the OS is in dark mode', async () => {
@@ -63,11 +77,22 @@ describe('RootLayout', () => {
 
     await render(<RootLayout />);
 
-    expect(jest.mocked(Stack)).toHaveBeenCalled();
-    const [{ screenOptions }] = jest.mocked(Stack).mock.calls[0] as [
+    const [{ screenOptions }] = mockedStack.mock.calls[0] as [
       { screenOptions: { contentStyle: { backgroundColor: string } } },
     ];
     // #0E161C is darkPalette.background.
     expect(screenOptions.contentStyle.backgroundColor).toBe('#0E161C');
+  });
+
+  it('selects the light Paper theme when the OS is in light mode', async () => {
+    jest.spyOn(ReactNative, 'useColorScheme').mockReturnValue('light');
+
+    await render(<RootLayout />);
+
+    const [{ screenOptions }] = mockedStack.mock.calls[0] as [
+      { screenOptions: { contentStyle: { backgroundColor: string } } },
+    ];
+    // #F3F7FB is palette.background.
+    expect(screenOptions.contentStyle.backgroundColor).toBe('#F3F7FB');
   });
 });

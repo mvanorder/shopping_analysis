@@ -36,25 +36,24 @@ describe('SeeItInActionSection on desktop web', () => {
       .SeeItInActionSection;
   }
 
-  it('wraps the dashboard preview in the decorative phone frame', async () => {
+  it('wraps the dashboard preview in the decorative phone frame at desktop width', async () => {
     setViewport(1280);
     const SeeItInActionSection = loadSection();
 
     await renderWithProviders(<SeeItInActionSection onGetStarted={jest.fn()} />);
 
-    expect(screen.getByText('A live look at your trends.')).toBeOnTheScreen();
+    // The frame is the whole point of the desktop-web branch.
+    expect(screen.getByTestId('phone-frame')).toBeOnTheScreen();
     expect(screen.getByText('Good afternoon')).toBeOnTheScreen();
-    expect(
-      screen.getByText('Example preview — your own history fills this in.'),
-    ).toBeOnTheScreen();
   });
 
-  it('shows a plain card preview on a phone-width browser window', async () => {
+  it('drops the phone frame and shows a plain card on a phone-width browser window', async () => {
     setViewport(400);
     const SeeItInActionSection = loadSection();
 
     await renderWithProviders(<SeeItInActionSection onGetStarted={jest.fn()} />);
 
+    expect(screen.queryByTestId('phone-frame')).not.toBeOnTheScreen();
     expect(screen.getByText('Good afternoon')).toBeOnTheScreen();
   });
 });

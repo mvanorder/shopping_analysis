@@ -5,8 +5,9 @@
 # hard gates (ruff, pylint, mypy, pytest, coverage) all live in ci.yml.
 #
 # The review criteria are NOT duplicated here. They live in
-# .claude/agents/code-reviewer.md, which the checkout makes readable at review
-# time, so the standards used by `/review` locally and by CI stay the same file.
+# .claude/agents/backend-code-reviewer.md and .claude/agents/frontend-code-reviewer.md,
+# which the checkout makes readable at review time, so the standards used by
+# `/review` locally and by CI stay the same files.
 # GOTCHA: on any PR that modifies THIS file, the action skips itself and the
 # job still reports success - "Skipping action due to workflow validation: the
 # workflow file must exist and have identical content to the version on the
@@ -70,11 +71,17 @@ jobs:
             You are reviewing a pull request. The PR branch is already checked
             out in the current working directory.
 
-            First, read `.claude/agents/code-reviewer.md` and adopt the review
-            standards it defines. That file is the source of truth for how this
-            repo reviews code - follow it rather than any default checklist.
+            First, look at which areas this PR changes, then read the matching
+            review-standards file(s) and adopt what they define - they are the
+            source of truth for how this repo reviews code, not any default
+            checklist:
+              - `.claude/agents/backend-code-reviewer.md` for changes under
+                `backend/` (Python, data-pipeline, CSV code).
+              - `.claude/agents/frontend-code-reviewer.md` for changes under
+                `frontend/` (TypeScript, React Native, Expo).
+            A PR that touches both areas is held to both.
 
-            Then apply these repo-specific rules it does not cover:
+            Then apply these repo-specific rules they do not cover:
 
             - Backend Python (`backend/`) must follow the docstring convention
               in `backend/CLAUDE.md`: EVERY module, class, and function needs a
@@ -106,10 +113,10 @@ jobs:
             Only post GitHub comments - do not return review text as a message.
 
           # Read/Grep/Glob are required: the prompt above tells Claude to read
-          # .claude/agents/code-reviewer.md and backend/CLAUDE.md, and to open
-          # neighbouring files for context. The write-capable tools (Edit,
-          # Write, git mutations) are deliberately absent - this mirrors
-          # code-reviewer.md's own read-only tool list, so the action cannot
-          # modify the PR even if the prompt were subverted.
+          # the .claude/agents/*-code-reviewer.md standards and backend/CLAUDE.md,
+          # and to open neighbouring files for context. The write-capable tools
+          # (Edit, Write, git mutations) are deliberately absent - this mirrors
+          # those agents' own read-only tool lists, so the action cannot modify
+          # the PR even if the prompt were subverted.
           claude_args: |
             --allowedTools "Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"

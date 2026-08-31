@@ -47,7 +47,7 @@ def _parse_ts(raw: str) -> datetime | None:
 
 
 def _review_gate_failure(transcript_path: str, root: Path) -> str | None:
-    """Check whether backend/app was edited since the last code-reviewer run.
+    """Check whether backend/app was edited since the last backend-code-reviewer run.
 
     :param transcript_path: Path to the session's JSONL transcript.
     :type transcript_path: str
@@ -104,9 +104,9 @@ def _review_gate_failure(transcript_path: str, root: Path) -> str | None:
 
     if last_edit_ts is not None and (last_review_ts is None or last_review_ts < last_edit_ts):
         return (
-            "backend/app files were modified since the last code-reviewer run "
-            "(or none has run this session) — invoke the code-reviewer subagent "
-            f'via the Task tool (subagent_type: "{CODE_REVIEWER_SUBAGENT}") '
+            f"backend/app files were modified since the last {CODE_REVIEWER_SUBAGENT} "
+            f"run (or none has run this session) — invoke the {CODE_REVIEWER_SUBAGENT} "
+            f'subagent via the Task tool (subagent_type: "{CODE_REVIEWER_SUBAGENT}") '
             "before finishing."
         )
     return None

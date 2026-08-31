@@ -29,7 +29,7 @@ type PhoneFrameProps = {
  */
 export function PhoneFrame({ children }: PhoneFrameProps) {
   return (
-    <View style={styles.outer}>
+    <View testID="phone-frame" style={styles.outer}>
       <View style={styles.screen}>{children}</View>
       <View
         accessibilityElementsHidden

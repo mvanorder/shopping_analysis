@@ -4,7 +4,7 @@ import { Icon, Text } from 'react-native-paper';
 import { radius, spacing, useAppTheme } from '@/theme';
 
 type BrandMarkProps = {
-  /** Hide the wordmark (used nowhere yet, but keeps the mark reusable). */
+  /** Hide the wordmark — the top bar drops it on compact widths so the row fits. */
   showWordmark?: boolean;
 };
 

@@ -23,21 +23,22 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
  * Everything below the theme provider: picks the Paper theme from the resolved
  * scheme and matches the OS status bar to it.
  */
-function ThemedApp() {
+function ThemedApp({ fontsSettled }: { fontsSettled: boolean }) {
   const { scheme, isReady } = useThemePreference();
   const theme = scheme === 'dark' ? darkTheme : lightTheme;
 
   useWebFocusRing(theme.colors.primary);
 
   useEffect(() => {
-    // Hold the native splash until the stored theme has been read, so a pinned
-    // dark preference is never revealed as a light-to-dark flash. We don't gate
-    // *rendering* on it - that would leave the static web build with a blank
-    // page - only the splash dismissal.
-    if (isReady) {
+    // Hold the native splash until both the display face and the stored theme
+    // are ready, so headlines never flash in the fallback font and a pinned
+    // dark preference is never revealed as a light-to-dark flash. We gate only
+    // the splash *dismissal* on this, never rendering - returning null here
+    // would export a blank static web page (effects don't run during prerender).
+    if (isReady && fontsSettled) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [isReady]);
+  }, [isReady, fontsSettled]);
 
   return (
     <PaperProvider theme={theme}>
@@ -55,16 +56,16 @@ function ThemedApp() {
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(appFonts);
 
-  // `fontError` still lets the app through - headlines fall back to the system
-  // face rather than the app hanging on a splash screen forever.
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
+  // Always render the tree so the static web export has real markup; the splash
+  // screen (held in ThemedApp) covers the font swap on native. A font error
+  // still counts as "settled" - headlines fall back to the system face rather
+  // than the app sitting on the splash forever.
+  const fontsSettled = fontsLoaded || fontError != null;
 
   return (
     <SafeAreaProvider>
       <ThemePreferenceProvider>
-        <ThemedApp />
+        <ThemedApp fontsSettled={fontsSettled} />
       </ThemePreferenceProvider>
     </SafeAreaProvider>
   );
