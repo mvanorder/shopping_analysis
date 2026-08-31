@@ -62,88 +62,92 @@ export function DashboardPreview({
         },
       ]}
     >
-      <View
-        style={[
-          styles.header,
-          {
-            backgroundColor: theme.colors.primary,
-            paddingTop: spacing.md + topInset,
-          },
-        ]}
-      >
-        <Text variant="titleMedium" style={{ color: theme.colors.onPrimary }}>
-          Good afternoon
-        </Text>
-      </View>
-
-      <View style={styles.body}>
-        <View style={styles.stats}>
-          {STATS.map((stat) => (
-            <View
-              key={stat.label}
-              accessible
-              accessibilityLabel={`${stat.label}: ${stat.value}`}
-              style={[
-                styles.stat,
-                {
-                  backgroundColor: theme.colors.surfaceMuted,
-                  borderColor: theme.colors.outline,
-                },
-              ]}
-            >
-              <Text
-                variant="labelSmall"
-                style={[styles.statLabel, { color: theme.colors.onSurfaceVariant }]}
-              >
-                {stat.label}
-              </Text>
-              <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>
-                {stat.value}
-              </Text>
-            </View>
-          ))}
+      {/* Clipping lives on an inner View, not the Surface: `overflow: hidden`
+          on a Surface swallows its own shadow (Paper warns about this). */}
+      <View style={[styles.clip, { borderRadius: rounded ? radius.xl : 0 }]}>
+        <View
+          style={[
+            styles.header,
+            {
+              backgroundColor: theme.colors.primary,
+              paddingTop: spacing.md + topInset,
+            },
+          ]}
+        >
+          <Text variant="titleMedium" style={{ color: theme.colors.onPrimary }}>
+            Good afternoon
+          </Text>
         </View>
 
-        <Divider style={[styles.divider, { backgroundColor: theme.colors.outline }]} />
-
-        <View style={styles.items}>
-          {ITEMS.map((item) => (
-            <View
-              key={item.name}
-              accessible
-              accessibilityLabel={`${item.name}, ${item.dueSpoken}`}
-              style={styles.item}
-            >
+        <View style={styles.body}>
+          <View style={styles.stats}>
+            {STATS.map((stat) => (
               <View
+                key={stat.label}
+                accessible
+                accessibilityLabel={`${stat.label}: ${stat.value}`}
                 style={[
-                  styles.itemIcon,
-                  { backgroundColor: theme.colors.primaryContainer },
-                ]}
-              >
-                <Icon source={item.icon} size={18} color={theme.colors.primary} />
-              </View>
-              <Text
-                variant="bodyMedium"
-                numberOfLines={1}
-                style={[styles.itemName, { color: theme.colors.onSurface }]}
-              >
-                {item.name}
-              </Text>
-              <View
-                style={[
-                  styles.badge,
-                  { backgroundColor: theme.colors.accentContainer },
+                  styles.stat,
+                  {
+                    backgroundColor: theme.colors.surfaceMuted,
+                    borderColor: theme.colors.outline,
+                  },
                 ]}
               >
                 <Text
                   variant="labelSmall"
-                  style={[styles.badgeText, { color: theme.colors.accent }]}
+                  style={[styles.statLabel, { color: theme.colors.onSurfaceVariant }]}
                 >
-                  {item.due}
+                  {stat.label}
+                </Text>
+                <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>
+                  {stat.value}
                 </Text>
               </View>
-            </View>
-          ))}
+            ))}
+          </View>
+
+          <Divider style={[styles.divider, { backgroundColor: theme.colors.outline }]} />
+
+          <View style={styles.items}>
+            {ITEMS.map((item) => (
+              <View
+                key={item.name}
+                accessible
+                accessibilityLabel={`${item.name}, ${item.dueSpoken}`}
+                style={styles.item}
+              >
+                <View
+                  style={[
+                    styles.itemIcon,
+                    { backgroundColor: theme.colors.primaryContainer },
+                  ]}
+                >
+                  <Icon source={item.icon} size={18} color={theme.colors.primary} />
+                </View>
+                <Text
+                  variant="bodyMedium"
+                  numberOfLines={1}
+                  style={[styles.itemName, { color: theme.colors.onSurface }]}
+                >
+                  {item.name}
+                </Text>
+                <View
+                  style={[
+                    styles.badge,
+                    { backgroundColor: theme.colors.accentContainer },
+                  ]}
+                >
+                  <Text
+                    variant="labelSmall"
+                    style={[styles.badgeText, { color: theme.colors.accent }]}
+                  >
+                    {item.due}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
         </View>
       </View>
     </Surface>
@@ -152,6 +156,9 @@ export function DashboardPreview({
 
 const styles = StyleSheet.create({
   card: {
+    width: '100%',
+  },
+  clip: {
     width: '100%',
     overflow: 'hidden',
   },
