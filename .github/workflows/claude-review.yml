@@ -48,21 +48,6 @@ jobs:
       - uses: anthropics/claude-code-action@a874e9ecd7bb36efdad65429c6b35815f5a08f10 # v1.0.210
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # TEMPORARY - diagnostic only, revert once the cause is known.
-          #
-          # The action hides the SDK's output by default ("full output hidden
-          # for security"), so a failing run reports only
-          # "result is_error:true" with no reason. Runs have been failing with
-          # num_turns:1, duration ~450ms and total_cost_usd:0 - i.e. the very
-          # first model call is rejected before anything is billed - and the
-          # actual API error is exactly what is being suppressed. Re-running
-          # with GitHub debug logging does NOT reveal it; this input is the
-          # only switch that does.
-          #
-          # Remove this line once the error is captured: it prints Claude's
-          # full JSON output into the run log, which anyone with read access
-          # to the repo can see.
-          show_full_output: true
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
