@@ -74,7 +74,7 @@
     "eslint-import-resolver-typescript": "^4.4.5",
     "jest": "~30.5.0",
     "jest-expo": "57.0.4",
-    "typescript": "~7.0.2"
+    "typescript": "~6.0.3"
   },
   "private": true
 }
