@@ -50,5 +50,62 @@ read the CSV header row rather than assuming columns.
   (see [`backend/CLAUDE.md`](backend/CLAUDE.md) for migrations and conventions; `backend/pyproject.toml`
   configures the ruff / mypy / pylint / pytest gates, with coverage held at `--cov-fail-under=90`).
 - Frontend: from `frontend/`, `npm start` (or `npm run ios` / `android` / `web`);
-  `npm run lint` runs `expo lint`.
+  `npm run lint` (eslint), `npm run typecheck` (`tsc --noEmit`) and `npm test`
+  (jest-expo + React Native Testing Library) are the three gates CI runs.
 - Full stack in Docker: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`.
+
+## CI
+
+Every PR, and every push to `master`, runs
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) — the same gates the Claude Code
+hooks run locally, plus the ones `backend/pyproject.toml` configures but no hook enforces
+(mypy, coverage).
+
+Reproduce the whole gate locally:
+
+```bash
+# from backend/
+uv sync --frozen && uv run ruff check app tests && uv run pylint app && uv run mypy app && uv run pytest
+
+# from frontend/
+npm ci && npx expo customize tsconfig.json && npx tsc --noEmit && npm run lint && npm test
+```
+
+`npx expo customize tsconfig.json` stands in for the dev server: `tsconfig.json` includes
+`.expo/types/**/*.ts` and `expo-env.d.ts`, which are gitignored and normally generated at
+dev-server start. `pylint` is scoped to `app/` on purpose — `pylint tests` currently scores
+9.10/10, and widening it is a follow-up.
+
+**`CI passed` is the only required status check on `master`**, and it is an aggregator over
+the path-filtered `backend` and `frontend` jobs. Path filtering happens in a job-level
+`if:`, never in the workflow's `on: paths:` — a workflow skipped by a trigger filter never
+reports a status at all, so a required check would sit "expected" forever and the PR could
+never merge. Add new jobs to `ci-passed`'s `needs:` rather than marking them required
+individually.
+
+[`.github/workflows/claude-review.yml`](.github/workflows/claude-review.yml) posts an
+advisory Claude review on each PR. It is deliberately **not** part of `CI passed`, so a
+spent API balance or a rate limit never blocks a merge. Its review standards live in
+`.claude/agents/code-reviewer.md`, not in the YAML, so `/review` locally and CI use the same
+file. On any PR that modifies that workflow, the action skips itself and the job still
+reports success — changes to it are unreviewed until they reach `master`.
+
+Dependencies: [`.github/dependabot.yml`](.github/dependabot.yml) opens weekly grouped PRs
+per ecosystem, and
+[`.github/workflows/dependabot-auto-merge.yml`](.github/workflows/dependabot-auto-merge.yml)
+auto-merges patch and minor updates once `CI passed` is green. Majors stay manual. Expo SDK
+packages are ignored there because they are version-locked to the SDK rather than to semver
+— a *patch* bump of one of them can fail to install. Move them as a set with
+`npx expo install --fix`.
+
+Actions are pinned to commit SHAs with the version in a trailing comment. Action updates are
+auto-merged and actions run with this repo's credentials, so the merged diff must name an
+immutable object rather than a movable tag. Dependabot updates the SHA and the comment
+together — do not convert them back to tags.
+
+**A passing check is not evidence that a gate ran.** Three checks here have reported success
+while verifying nothing: `expo lint` bootstrapping a config and exiting 0 without linting,
+`ci-passed` aggregating an all-skipped run, and the review workflow self-skipping. The
+eslint step asserts a non-zero file count for exactly this reason. When you add or change a
+gate, prove it can fail — plant a violation, watch it go red — and read the step log to
+confirm it says what you expect.
