@@ -2,6 +2,10 @@
 //
 // jest-expo wires up most of the React Native mock surface; this file fills the
 // gaps this app hits.
+//
+// jest.mock factories are hoisted above imports, so their bodies have to
+// `require` - disable the lint rule for the whole file rather than every line.
+/* eslint-disable @typescript-eslint/no-require-imports */
 
 // React only routes state updates through `act()` when this global is set. RNTL
 // sets it around its own render/fireEvent calls but restores the prior value
