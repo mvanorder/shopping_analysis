@@ -30,11 +30,6 @@ def run() -> None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """Report basic application liveness.
-
-    :returns: A static ``{"status": "ok"}`` payload.
-    :rtype: dict[str, str]
-    """
     return {"status": "ok"}
 
 
