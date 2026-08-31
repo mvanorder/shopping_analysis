@@ -89,8 +89,9 @@ individually.
 [`.github/workflows/claude-review.yml`](.github/workflows/claude-review.yml) posts an
 advisory Claude review on each PR. It is deliberately **not** part of `CI passed`, so a
 spent API balance or a rate limit never blocks a merge. Its review standards live in
-`.claude/agents/code-reviewer.md`, not in the YAML, so `/review` locally and CI use the same
-file. On any PR that modifies that workflow, the action skips itself and the job still
+`.claude/agents/backend-code-reviewer.md` and `.claude/agents/frontend-code-reviewer.md`
+(picked by which area the PR changes), not in the YAML, so `/review` locally and CI use the
+same files. On any PR that modifies that workflow, the action skips itself and the job still
 reports success — changes to it are unreviewed until they reach `master`.
 
 Dependencies: [`.github/dependabot.yml`](.github/dependabot.yml) opens weekly grouped PRs

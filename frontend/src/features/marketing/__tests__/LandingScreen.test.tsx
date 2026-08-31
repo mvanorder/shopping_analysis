@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useWindowDimensions } from 'react-native';
+import { ScrollView, useWindowDimensions } from 'react-native';
 
 import {
   act,
@@ -65,6 +65,7 @@ function setViewport(width: number) {
 
 afterEach(() => {
   mockedUseWindowDimensions.mockReset();
+  jest.restoreAllMocks();
 });
 
 describe('LandingScreen', () => {
@@ -144,31 +145,50 @@ describe('LandingScreen', () => {
     );
   });
 
-  it('measures its header and section, then scrolls when the hero link is pressed', async () => {
+  it('scrolls to the "How it works" section offset by the measured header height', async () => {
     setViewport(1280);
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockImplementation(() => {});
+
     const { root } = await renderWithProviders(<LandingScreen />);
 
-    // Feed both onLayout handlers so the scroll target is computed from real
-    // offsets rather than the initial zeros.
-    const measured = root!.queryAll(
+    // The screen has exactly two onLayout handlers, in source order: the sticky
+    // header wrapper, then the "How it works" section band.
+    const [headerNode, sectionNode] = root!.queryAll(
       (node) => typeof node.props.onLayout === 'function',
     );
-    expect(measured.length).toBeGreaterThanOrEqual(2);
-    // Await each event fully before the next: some of these nodes are inside
-    // Paper components that update state from onLayout, and firing them in a
-    // tight loop overlaps act scopes on the concurrent renderer.
-    for (const [i, node] of measured.entries()) {
-      await act(async () => {
-        fireEvent(node, 'layout', {
-          nativeEvent: {
-            layout: { x: 0, y: (i + 1) * 200, width: 1280, height: 80 },
-          },
-        });
-      });
-    }
+    expect(sectionNode).toBeDefined();
 
-    expect(() =>
-      fireEvent.press(screen.getByLabelText('See how it works')),
-    ).not.toThrow();
+    // Await each event before the next - firing them in a tight loop overlaps
+    // act scopes on the concurrent renderer.
+    await act(async () => {
+      fireEvent(headerNode, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 1280, height: 96 } },
+      });
+    });
+    await act(async () => {
+      fireEvent(sectionNode, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 1400, width: 1280, height: 600 } },
+      });
+    });
+
+    fireEvent.press(screen.getByLabelText('See how it works'));
+
+    // y = howItWorksY (1400) - headerHeight (96), so the heading clears the bar.
+    expect(scrollTo).toHaveBeenCalledWith({ y: 1304, animated: true });
+  });
+
+  it('clamps the scroll target to zero before the section has been measured', async () => {
+    setViewport(1280);
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockImplementation(() => {});
+
+    await renderWithProviders(<LandingScreen />);
+
+    fireEvent.press(screen.getByLabelText('See how it works'));
+
+    expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: true });
   });
 });
