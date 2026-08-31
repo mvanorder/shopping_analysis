@@ -175,7 +175,7 @@ jobs:
           '
 
       - name: jest
-        run: npm test -- --ci
+        run: npm test -- --ci --coverage
 
   # The single required status check. Aggregates the path-filtered jobs so a
   # docs-only PR (README.md, docs/, CLAUDE.md) passes with both language jobs
