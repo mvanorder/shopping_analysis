@@ -5,7 +5,7 @@ import { Platform, useWindowDimensions } from 'react-native';
 import { renderHook } from '@testing-library/react-native';
 
 // `useResponsive` reads `Platform.OS` and `document` at module-eval time, so it
-// is required lazily *after* the platform is switched to web. With a DOM present
+// is imported lazily *after* the platform is switched to web. With a DOM present
 // it also uses `useLayoutEffect` for hydration - the `hasDom` branch the
 // default (node) environment can never reach.
 
@@ -26,6 +26,10 @@ describe('useResponsive on web', () => {
   });
 
   function loadHook() {
+    // A lazy require (not a top-level import) so the module evaluates *after*
+    // `Platform.OS` is set to web above; jest runs without the VM-modules flag,
+    // so `await import()` is not available here.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return (require('../useResponsive') as typeof import('../useResponsive'))
       .useResponsive;
   }
