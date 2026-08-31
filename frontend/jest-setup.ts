@@ -1,9 +1,14 @@
 // Runs after the test framework is installed, before each test file.
 //
-// jest-expo already wires up most of the React Native mock surface. The two
-// pieces it does not cover for this app are AsyncStorage (a native module that
-// throws if touched without a mock) and react-native-reanimated (pulled in by
-// react-native-paper's ripple), so both are mocked here once for every suite.
+// jest-expo wires up most of the React Native mock surface; this file fills the
+// gaps this app hits.
+
+// React only routes state updates through `act()` when this global is set. RNTL
+// sets it around its own render/fireEvent calls but restores the prior value
+// afterwards - so async work that lands later (Paper animations, font loads)
+// runs with it unset and React logs "not configured to support act(...)".
+// jest-expo does not set it, so pin it on for the whole run.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
@@ -17,3 +22,16 @@ jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock
 jest.mock('react-native-safe-area-context', () =>
   require('react-native-safe-area-context/jest/mock').default,
 );
+
+// react-native-paper renders icons through
+// @react-native-vector-icons/material-design-icons, whose real component kicks
+// off an async font download via the Expo modules global on first mount. That
+// global is absent under test, so it logs "Failed to load font". Swap it for a
+// trivial text stand-in - no test inspects the glyph itself.
+jest.mock('@react-native-vector-icons/material-design-icons', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  const Icon = ({ name, ...rest }: { name?: string }) =>
+    React.createElement(Text, rest, name ?? null);
+  return { __esModule: true, default: Icon, MaterialDesignIcons: Icon };
+});
