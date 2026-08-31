@@ -3,10 +3,7 @@
  */
 import { Platform, useWindowDimensions } from 'react-native';
 
-import {
-  renderWithProviders,
-  screen,
-} from '../../../../../test-utils/render';
+import { renderWithProviders, screen } from '../../../../../test-utils/render';
 import { setViewport, resetViewport } from '../../../../../test-utils/viewport';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions');
@@ -15,7 +12,7 @@ void useWindowDimensions;
 
 // `useResponsive` only reports `showDeviceFrame` on desktop-scale web, and it
 // latches `Platform.OS` at module-eval time — so the section (and the hook it
-// pulls in) must be required after switching to web.
+// pulls in) must be loaded after switching to web.
 
 describe('SeeItInActionSection on desktop web', () => {
   const originalOS = Platform.OS;
@@ -30,10 +27,18 @@ describe('SeeItInActionSection on desktop web', () => {
 
   afterEach(resetViewport);
 
+  function loadSection() {
+    // A lazy require (not a top-level import) so the module evaluates *after*
+    // `Platform.OS` is set to web above; jest runs without the VM-modules flag,
+    // so `await import()` is not available here.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return (require('../SeeItInActionSection') as typeof import('../SeeItInActionSection'))
+      .SeeItInActionSection;
+  }
+
   it('wraps the dashboard preview in the decorative phone frame', async () => {
     setViewport(1280);
-    const { SeeItInActionSection } =
-      require('../SeeItInActionSection') as typeof import('../SeeItInActionSection');
+    const SeeItInActionSection = loadSection();
 
     await renderWithProviders(<SeeItInActionSection onGetStarted={jest.fn()} />);
 
@@ -46,8 +51,7 @@ describe('SeeItInActionSection on desktop web', () => {
 
   it('shows a plain card preview on a phone-width browser window', async () => {
     setViewport(400);
-    const { SeeItInActionSection } =
-      require('../SeeItInActionSection') as typeof import('../SeeItInActionSection');
+    const SeeItInActionSection = loadSection();
 
     await renderWithProviders(<SeeItInActionSection onGetStarted={jest.fn()} />);
 
