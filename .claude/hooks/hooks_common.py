@@ -7,7 +7,7 @@ from pathlib import Path
 
 EDIT_TOOL_NAMES = {"Edit", "Write", "MultiEdit"}
 REVIEW_TOOL_NAMES = {"Agent", "Task"}
-CODE_REVIEWER_SUBAGENT = "backend-code-reviewer"
+CODE_REVIEWER_SUBAGENTS = {"backend-code-reviewer", "frontend-code-reviewer"}
 
 
 def repo_root() -> Path:

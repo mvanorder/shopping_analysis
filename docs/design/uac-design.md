@@ -4,8 +4,9 @@ Status: draft, for review. Partially implemented: most of §5's schema (`users`,
 `auth_identities`, `refresh_tokens`, `roles`, `permissions`, `role_permissions`, `user_roles`,
 `audit_log`) exists as an ORM model + migration, and the container/compose scaffolding (§6–§8) is
 built. `orders`/`order_items` are deliberately excluded pending plan refinement (see §5). The
-*behavior* on top of the built schema is also not there yet: password hashing, JWT issuance, RBAC
-enforcement (§3), and the Google OAuth flow (§4) are all still design-only.
+`create-superuser` bootstrap CLI (§2) is built, including argon2 password hashing. The rest of
+the *behavior* on top of the built schema is not there yet: password verification at login, JWT
+issuance, RBAC enforcement (§3), and the Google OAuth flow (§4) are all still design-only.
 Scope: user accounts, authentication, authorization (RBAC), and the container/deployment
 architecture needed to run this at anywhere from single-user to millions-of-users scale.
 
@@ -44,8 +45,10 @@ models matching this shape, with a few concrete choices the design above left op
   'google'))` in addition to whatever the app layer enforces, so an invalid provider value can't
   reach the table even from a bug or a manual `INSERT`.
 - `refresh_tokens.ip_address` is a Postgres `INET` column rather than plain text.
-- Password hashing (argon2), JWT issuance, and the Google OAuth flow itself are not implemented
-  yet — only the schema these depend on exists so far.
+- Argon2 password hashing exists (`backend/app/cli.py`), but only the `create-superuser`
+  bootstrap path (§2) uses it — there's no login endpoint that verifies a password yet. JWT
+  issuance and the Google OAuth flow itself are not implemented — only the schema these depend
+  on exists so far.
 - The `roles`/`permissions`/`role_permissions`/`user_roles` (§3) and `audit_log` (§5) tables are
   also now built as models (`app/models/rbac.py`, `app/models/audit.py`) — see §5 for the
   specifics. `orders`/`order_items` are not built yet, pending plan refinement (§5). RBAC
@@ -103,6 +106,49 @@ Bootstrapping the first superuser:
   login, given the blast radius of that credential.
 - Superuser actions (role grants, user disable/enable, impersonation) are written to the
   `audit_log` table (§5) with actor, action, target, and timestamp.
+
+**Implemented** (`backend/app/cli.py`, tested in `backend/tests/test_cli.py`):
+`python -m app.cli create-superuser [--email <email>]`.
+
+- **Email.** `--email` is validated with a deliberately loose plausibility check (rejects a
+  missing `@`, stray whitespace, a bare hostname) — not full RFC 5322 — so an obvious typo
+  doesn't become a permanent `users` row no one can log into. If `--email` is omitted, the
+  command prompts for it interactively and re-prompts until the value passes that check; when
+  there's no terminal (CI / deploy automation) the flag is required and its absence is a usage
+  error.
+- **Password source, in precedence order:** `SUPERUSER_PASSWORD`, then `SUPERUSER_PASSWORD_FILE`
+  (a path — mirroring the `POSTGRES_PASSWORD` / `POSTGRES_PASSWORD_FILE` convention and the
+  staging/prod Docker secret in §6), then — only at a terminal — an interactive prompt that
+  asks twice and re-prompts on a mismatch. A value from the env var or the file is stripped; a
+  prompted value is used verbatim apart from the blank check. A set-but-blank env var or an
+  unreadable / non-UTF-8 secret file is a hard error, not a silent fallback.
+- **Google-only bootstrap.** A blank password at the prompt — or, in non-interactive automation,
+  leaving both env vars unset — creates the account with **no `password` `auth_identities`
+  row**. First login then goes through the Google flow, which links a `google` identity to the
+  existing row by verified email (§4).
+- **Password identity.** When a password is supplied it's hashed with **argon2**
+  (`argon2.PasswordHasher`, matching §1's "Password handling") and written to `auth_identities`
+  as `provider='password'`, `provider_user_id = users.id`.
+- **Idempotent, sequential.** With no matching account the command inserts one
+  (`is_superuser=true`, `email_verified=true` — the operator is trusted to have verified the
+  address out of band); with a matching account it promotes that row in place
+  (`is_superuser=true`) and, if a password was supplied, creates or updates (rotates) its
+  `password` identity. Safe to re-run (e.g. on every deploy). It is **not** safe to run
+  concurrently for the same not-yet-existing email — both invocations would insert and the loser
+  hits the `users.email` unique constraint.
+
+Not yet built / open decisions:
+
+- **MFA (TOTP)** for superuser accounts — still design-only (open question 2).
+- The **promotion path** flips only `is_superuser`; it does not set `email_verified` on an
+  existing (possibly unverified) row, and it trusts whatever row matches the email. Once a login
+  layer exists that gates on `email_verified` or on account state (§1 "Account states"), decide
+  whether promotion should also verify the address and whether it should refuse a disabled
+  account.
+- The prompted password has **no strength or length floor** beyond "not blank". Consider a
+  minimum length with a re-prompt, given this is the one credential that bypasses RBAC.
+- **Audit logging** of the bootstrap action — the command prints what it did but writes no
+  `audit_log` row (there's no actor yet at bootstrap time).
 
 ---
 
@@ -371,3 +417,13 @@ lock the project out of moving to Cloud Run/ECS later without a rewrite.
 3. Job queue choice for the `worker` image — Celery (mature, heavier) vs RQ (simpler, Redis-only)?
 4. Do we need org/team-scoped sharing of order data in the medium term? It doesn't change §1–3
    much now, but affects whether RBAC roles should be scoped per-resource sooner rather than later.
+5. `orders`/`order_items` schema (§5) needs its plan refined before implementation: what's the
+   import-time dedup key for a re-uploaded CSV (order number alone, or order number + retailer)?
+   Is `order_number` unique per-user or globally, given different retailers can reuse the same
+   numbering scheme? What's the final shape of `tracking_numbers` — a Postgres array, a JSONB list,
+   or a separate `order_shipments` table if a single order can ship in multiple packages with
+   different carriers?
+6. `create-superuser` promotion semantics (§2), to settle when the login layer lands: should
+   promoting an existing account also set `email_verified = true`, and should it refuse a
+   `disabled` account rather than silently re-enabling privileges? Should the interactive
+   password prompt enforce a minimum length?

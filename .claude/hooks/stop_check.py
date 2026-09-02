@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hooks_common import (  # noqa: E402  pylint: disable=wrong-import-position
-    CODE_REVIEWER_SUBAGENT,
+    CODE_REVIEWER_SUBAGENTS,
     EDIT_TOOL_NAMES,
     REVIEW_TOOL_NAMES,
     GitStatusError,
@@ -97,16 +97,16 @@ def _review_gate_failure(transcript_path: str, root: Path) -> str | None:
                             break
                 elif (
                     name in REVIEW_TOOL_NAMES
-                    and block_input.get("subagent_type") == CODE_REVIEWER_SUBAGENT
+                    and block_input.get("subagent_type") in CODE_REVIEWER_SUBAGENTS
                 ):
                     if last_review_ts is None or ts > last_review_ts:
                         last_review_ts = ts
 
     if last_edit_ts is not None and (last_review_ts is None or last_review_ts < last_edit_ts):
         return (
-            f"backend/app files were modified since the last {CODE_REVIEWER_SUBAGENT} "
-            f"run (or none has run this session) — invoke the {CODE_REVIEWER_SUBAGENT} "
-            f'subagent via the Task tool (subagent_type: "{CODE_REVIEWER_SUBAGENT}") '
+            "backend/app files were modified since the last code-reviewer run "
+            "(or none has run this session) — invoke the backend-code-reviewer "
+            "subagent via the Task tool (subagent_type: \"backend-code-reviewer\") "
             "before finishing."
         )
     return None

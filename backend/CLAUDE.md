@@ -24,6 +24,13 @@ From `backend/`, with the venv active:
 - `uvicorn app.main:app --reload` — run the dev server.
 - `alembic upgrade head` — apply migrations.
 - `alembic revision --autogenerate -m "<message>"` — generate a migration.
+- `python -m app.cli create-superuser --email <email>` — create (or promote) a superuser.
+  `--email` is prompted for interactively if omitted (and required as a flag when there's no
+  terminal). Reads the initial password from `SUPERUSER_PASSWORD` or `SUPERUSER_PASSWORD_FILE`;
+  with neither set it prompts for the password (twice, to confirm) when run at a terminal.
+  Submitting an empty password — or, in non-interactive automation, leaving both env vars unset —
+  bootstraps a Google-OAuth-only account instead (see `docs/design/uac-design.md` §2). Safe to
+  re-run — it promotes an existing account rather than duplicating it.
 
 ## Docstring conventions
 
