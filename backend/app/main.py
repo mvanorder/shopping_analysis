@@ -11,10 +11,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.routers import auth as auth_router
+from app.routers import users as users_router
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Shopping Analysis")
+app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
+app.include_router(users_router.router, prefix="/users", tags=["users"])
 
 
 def run() -> None:

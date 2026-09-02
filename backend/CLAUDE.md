@@ -8,10 +8,25 @@ FastAPI backend for the _Shopping Analysis_ project. It exposes
 HTTP endpoints for uploading/inspecting order data and persists to Postgres
 via SQLAlchemy's async engine, with Alembic managing schema migrations.
 
-- `app/main.py` — FastAPI app and route handlers.
+- `app/main.py` — FastAPI app; mounts the routers below plus its own
+  `/health`, `/health/db`, `/orders/upload`.
+- `app/routers/auth.py` — `POST /auth/{register,login,refresh,logout,logout-all}`
+  (see `docs/design/uac-design.md` §1 "Authentication endpoints" for the full
+  contract: transport, error codes, refresh-token rotation/reuse semantics).
+- `app/routers/users.py` — `GET /users/me`, the first protected route.
+- `app/dependencies.py` — `get_current_user`, the `HTTPBearer`-based
+  dependency every protected route depends on.
+- `app/security.py` — password hashing/verification (argon2), JWT
+  encode/decode (RS256), and refresh-token generate/hash helpers. Pure
+  crypto/token logic, no FastAPI imports — shared by both the auth routes
+  and `app/cli.py`'s `create-superuser`.
+- `app/schemas.py` — Pydantic request/response models for the auth/user API.
 - `app/config.py` — `Settings` (pydantic-settings) for Postgres connection
-  config, loaded from `backend/.env` (see `.env.example`) or environment
-  variables.
+  and JWT signing-key config, loaded from `backend/.env` (see `.env.example`)
+  or environment variables. The JWT keypair falls back to an ephemeral
+  in-process one if `JWT_PRIVATE_KEY[_FILE]`/`JWT_PUBLIC_KEY[_FILE]` are
+  unset — zero setup for local dev/tests, but logs a warning, since it's
+  unsafe for a real multi-replica deployment (see the property's docstring).
 - `app/db.py` — async engine/session setup (`get_engine`, `get_sessionmaker`,
   `get_db`) and the declarative `Base` for ORM models.
 - `alembic/`, `alembic.ini` — migrations; `alembic/env.py` builds the DB URL

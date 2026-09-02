@@ -13,6 +13,8 @@ dependencies = [
     "alembic~=1.19.1",
     "pydantic-settings~=2.15.0",
     "argon2-cffi~=23.1.0",
+    "pyjwt[crypto]~=2.13.0",
+    "pydantic[email]>=2.13.4",
 ]
 
 [project.scripts]

@@ -8,29 +8,16 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
-from argon2 import PasswordHasher
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
-from app.models import AuthIdentity, User
-
-_password_hasher = PasswordHasher()
+from app.models import User
+from app.security import hash_password, upsert_password_identity
 
 # Shared by both interactive prompts (email and password) so an aborted run
 # reports itself identically whichever prompt the operator was on.
 _ABORT_MESSAGE = "\nAborted; no superuser created."
-
-
-def hash_password(password: str) -> str:
-    """Hash a plaintext password with argon2.
-
-    :param password: The plaintext password to hash.
-    :type password: str
-    :returns: An argon2 hash string suitable for ``auth_identities.secret_hash``.
-    :rtype: str
-    """
-    return _password_hasher.hash(password)
 
 
 def read_bootstrap_password() -> str | None:
@@ -130,37 +117,6 @@ def _require_non_blank(value: str, source: str) -> str:
     return value
 
 
-async def _upsert_password_identity(
-    session: AsyncSession, user: User, password_hash: str
-) -> None:
-    """Create or update the ``password`` ``auth_identities`` row for a user.
-
-    :param session: The database session to operate on.
-    :type session: AsyncSession
-    :param user: The user to attach the password identity to.
-    :type user: User
-    :param password_hash: An argon2 hash from :func:`hash_password`.
-    :type password_hash: str
-    """
-    result = await session.execute(
-        select(AuthIdentity).where(
-            AuthIdentity.user_id == user.id, AuthIdentity.provider == "password"
-        )
-    )
-    identity = result.scalar_one_or_none()
-    if identity is None:
-        session.add(
-            AuthIdentity(
-                user_id=user.id,
-                provider="password",
-                provider_user_id=str(user.id),
-                secret_hash=password_hash,
-            )
-        )
-    else:
-        identity.secret_hash = password_hash
-
-
 async def ensure_superuser(
     session: AsyncSession, email: str, password_hash: str | None
 ) -> tuple[User, bool]:
@@ -202,7 +158,7 @@ async def ensure_superuser(
         user.is_superuser = True
 
     if password_hash is not None:
-        await _upsert_password_identity(session, user, password_hash)
+        await upsert_password_identity(session, user, password_hash)
 
     await session.commit()
     return user, created

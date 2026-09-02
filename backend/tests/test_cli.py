@@ -9,6 +9,7 @@ from argon2 import PasswordHasher
 
 from app import cli
 from app.models import AuthIdentity, User
+from tests.fakes import FakeSession as _FakeSession
 
 
 def _fake_getpass(monkeypatch: pytest.MonkeyPatch, responses: list[str]) -> None:
@@ -34,82 +35,6 @@ def _fake_getpass(monkeypatch: pytest.MonkeyPatch, responses: list[str]) -> None
         return queued.pop(0)
 
     monkeypatch.setattr(cli.getpass, "getpass", _fake)
-
-
-class _FakeResult:
-    """A minimal stand-in for SQLAlchemy's ``Result``, wrapping one value.
-
-    :param value: The value ``scalar_one_or_none`` should return.
-    :type value: object
-    """
-
-    def __init__(self, value: object) -> None:
-        """Store the value this fake result will hand back.
-
-        :param value: The value ``scalar_one_or_none`` should return.
-        :type value: object
-        """
-        self._value = value
-
-    def scalar_one_or_none(self) -> object:
-        """Return the configured value, mimicking a single-row (or no-row) query.
-
-        :returns: The value passed to the constructor.
-        :rtype: object
-        """
-        return self._value
-
-
-class _FakeSession:
-    """A minimal stand-in for ``AsyncSession`` driving ``ensure_superuser``.
-
-    Each call to :meth:`execute` pops the next value off ``execute_results``
-    and wraps it in a :class:`_FakeResult` — callers don't inspect the
-    statement itself, so tests configure results in the order the function
-    under test is expected to query them.
-
-    :param execute_results: Values to return from successive ``execute`` calls.
-    :type execute_results: list[object]
-    """
-
-    def __init__(self, execute_results: list[object]) -> None:
-        """Queue up the results successive ``execute`` calls should return.
-
-        :param execute_results: Values to return from successive ``execute`` calls.
-        :type execute_results: list[object]
-        """
-        self._execute_results = list(execute_results)
-        self.added: list[object] = []
-        self.committed = False
-
-    async def execute(self, _stmt: object) -> _FakeResult:
-        """Pop and wrap the next queued result.
-
-        :param _stmt: Ignored — the fake doesn't interpret the statement.
-        :type _stmt: object
-        :returns: The next queued value, wrapped in a ``_FakeResult``.
-        :rtype: _FakeResult
-        """
-        assert self._execute_results, "code under test ran more queries than the test scripted"
-        return _FakeResult(self._execute_results.pop(0))
-
-    def add(self, obj: object) -> None:
-        """Record a row as staged for insert.
-
-        :param obj: The ORM object being added.
-        :type obj: object
-        """
-        self.added.append(obj)
-
-    async def flush(self) -> None:
-        """Assign a fake id to any newly-added row that doesn't have one."""
-        for obj in self.added:
-            if getattr(obj, "id", None) is None:
-                obj.id = uuid.uuid4()
-
-    async def commit(self) -> None:
-        """Record that the transaction was committed."""
-        self.committed = True
 
 
 async def test_ensure_superuser_creates_new_user_with_password() -> None:

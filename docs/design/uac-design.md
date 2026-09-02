@@ -4,9 +4,12 @@ Status: draft, for review. Partially implemented: most of §5's schema (`users`,
 `auth_identities`, `refresh_tokens`, `roles`, `permissions`, `role_permissions`, `user_roles`,
 `audit_log`) exists as an ORM model + migration, and the container/compose scaffolding (§6–§8) is
 built. `orders`/`order_items` are deliberately excluded pending plan refinement (see §5). The
-`create-superuser` bootstrap CLI (§2) is built, including argon2 password hashing. The rest of
-the *behavior* on top of the built schema is not there yet: password verification at login, JWT
-issuance, RBAC enforcement (§3), and the Google OAuth flow (§4) are all still design-only.
+`create-superuser` bootstrap CLI (§2) is built, including argon2 password hashing. The core
+password-auth HTTP loop is also now built and verified end-to-end against a real Postgres instance:
+`register`/`login`/`refresh`/`logout`/`logout-all`, JWT issuance/verification, and the
+`get_current_user` dependency (§1 "Authentication endpoints"). Still design-only: RBAC enforcement
+(§3), the Google OAuth flow (§4), and email verification/password reset (both need an email sender
+that doesn't exist yet).
 Scope: user accounts, authentication, authorization (RBAC), and the container/deployment
 architecture needed to run this at anywhere from single-user to millions-of-users scale.
 
@@ -78,10 +81,93 @@ scaled API instances. Instead:
 - This means logout / "sign out all devices" / admin-forced revocation all just delete or mark
   rows in `refresh_tokens` — no server-side session store needed for the hot path.
 
+**Implemented** (`backend/app/security.py`): `create_access_token`/`decode_access_token` (RS256,
+via `pyjwt[crypto]`) and `generate_refresh_token`/`hash_refresh_token`. Two simplifications versus
+the design above, both because RBAC (§3) isn't built yet: the access token's payload today is only
+`sub`/`iat`/`exp` — no role/permission claims, since there are no roles to cache — and refresh
+tokens are hashed with **SHA-256, not argon2** (deliberately: they're already 256 bits of uniform
+random data, not a low-entropy human password, and `POST /auth/refresh` needs to find a row by
+exact hash equality, which a per-call-salted hash can't support without a full-table scan — see
+the function's docstring). Revisit the access-token payload once §3 lands.
+
+### Authentication endpoints [core password loop implemented; see below for what isn't]
+
+Everything above describes the token *strategy*; this is the HTTP surface that actually issues
+and consumes them. `register`/`login`/`refresh`/`logout`/`logout-all`/`GET /users/me` are built
+(`backend/app/routers/auth.py`, `backend/app/routers/users.py`, `backend/app/dependencies.py`);
+`verify-email`, `password-reset`, and the Google OAuth endpoints (§4) are not — see the table
+below for which is which. This is separate from the `create-superuser` CLI (§2), which writes
+`users`/`auth_identities` rows directly rather than going through this API.
+
+**Transport.** The access token travels as a standard `Authorization: Bearer <token>` header —
+not a cookie — because Expo Router (`frontend/`) ships the same codebase to native iOS/Android and
+web, and a header is the one mechanism that works identically across all three without a
+web-only/native-only branch in the HTTP client. The refresh token is returned once, in the
+`POST /auth/login` response body, and the client is responsible for storing it (Expo
+`SecureStore` on native; **web storage is an open question below** — `localStorage` is readable by
+any injected script, so it carries real XSS exposure that native's SecureStore doesn't).
+
+**Endpoints:**
+
+| Endpoint | Auth required | Does |
+|---|---|---|
+| `POST /auth/register` **[built]** | none | Create a `users` row + a `password` `auth_identities` row. Simplification: leaves `email_verified=False` but does **not** block login on it (no verification flow exists — see Account states below) — the account behaves as fully active immediately. |
+| `POST /auth/verify-email` | none (token in body) | Consume a verification token; flip `email_verified`/state to `active`. **Not built** — needs an email sender that doesn't exist. |
+| `POST /auth/login` **[built]** | none | Verify `email`+`password` against `auth_identities.secret_hash` (argon2), reject if the account is `is_active=False`; on success, update `last_login_at` and issue an access/refresh token pair. Every failure mode (unknown email, wrong password, Google-only account, disabled account) returns the *same* generic 401 — deliberate anti-enumeration, not an oversight. |
+| `POST /auth/refresh` **[built]** | refresh token (body) | Validate + rotate the refresh token; issue a new pair. See the reuse-detection note below. |
+| `POST /auth/logout` **[built]** | access token | Revoke the refresh token tied to the current session/device — silently a no-op (still 204) if that token doesn't exist or belongs to someone else, so an authenticated caller can't use this to force-log-out another user or probe whether a token exists. |
+| `POST /auth/logout-all` **[built]** | access token | Revoke every `refresh_tokens` row for the user ("sign out all devices"). |
+| `POST /auth/password-reset` / `POST /auth/password-reset/confirm` | none | Same short-lived-token pattern as email verification. **Not built** — same email-sender gap. |
+| `GET /auth/google/login`, `GET /auth/google/callback` | none | The OAuth flow specified in §4. **Not built.** |
+| `GET /users/me` **[built]** | access token | Return the caller's own profile, re-fetched from the DB by the token's `sub` rather than trusting cached claims — the simplest possible exercise of the dependency below. |
+
+**Refresh-token rotation/reuse, concretely** (`backend/app/routers/auth.py`): looked up by exact
+SHA-256 hash equality. An unknown hash, or a not-yet-revoked-but-expired token, is a plain 401 (the
+latter is also opportunistically marked revoked). A token that's already revoked being presented
+again is treated as theft: **every** other active `refresh_tokens` row for that user is revoked
+too (whole-account, not just the affected device — a `family_id` column to scope this down to one
+device chain is a deliberate, documented follow-up, not built), a warning is logged, and the same
+generic 401 is returned. Verified against a real dev Postgres instance end-to-end: reusing a
+rotated-out token 401s, and the token issued by that same rotation is also revoked as a result.
+
+**Enforcement dependency [built]** (`backend/app/dependencies.py`). `get_current_user` does the
+verification any protected route needs:
+
+1. Extract the bearer token via `HTTPBearer(auto_error=False)` — **not** `OAuth2PasswordBearer`,
+   which assumes a spec-compliant form-encoded `/token` endpoint; `POST /auth/login` takes JSON.
+2. Verify the JWT signature and expiry (RS256 public key, no DB hit — §1 Sessions and tokens).
+3. Return a lightweight claims object (`user_id`, `expires_at`) — *not* a `users` row fetch on
+   every request. (No cached role/permission snapshot yet — see the note under Sessions and
+   tokens above; that's added once §3 is built.)
+4. `require_permission("orders:write")` (§3) is **not built** — it would wrap this same
+   dependency and add the permission check on top once RBAC lands.
+
+**Error contract**, so the frontend can branch on it without parsing prose:
+
+- **401** — missing, malformed, expired, or signature-invalid access token. The frontend's
+  response is always the same regardless of *which* of those it was: silently attempt
+  `POST /auth/refresh`, and only surface a login prompt if that also fails.
+- **403** — the token is valid but `require_permission` says no (§3's "can this role do this" or
+  the ownership check both land here). The frontend should *not* retry or refresh on 403 — retrying
+  a refresh won't fix an authorization gap. **Not reachable yet** — nothing returns 403 until §3's
+  `require_permission` exists.
+- Login/register/refresh failures use **400** (malformed request, e.g. duplicate email on
+  register) vs **401** (bad credentials/token) as built today; **429** (rate-limited) is **not
+  built** — no Redis exists yet to back one (§7) — but `backend/app/routers/auth.py` marks exactly
+  where a rate-limiting `Depends(...)` would slot into `login`/`register`/`refresh`.
+
 ### Account states
 
 `pending_verification` → `active` → `disabled` (admin action) — enforced as a check in the auth
 dependency, not scattered across endpoints.
+
+**Implementation note:** there's no `pending_verification` state actually enforced today — reaching
+`active` needs the (not-built) email verification flow, so `POST /auth/register` leaves the account
+immediately usable (`email_verified=False`, but login doesn't check it) rather than blocking it in
+limbo. The one gate that *is* enforced is `is_active` (→ `disabled`), checked in
+`_authenticate_password` (`backend/app/routers/auth.py`). No new column was added for this —
+`users.is_active`/`email_verified` (already migrated, §5) are enough to approximate the state
+machine until the verification flow exists to justify a dedicated state column.
 
 ---
 
