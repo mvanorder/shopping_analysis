@@ -12,6 +12,14 @@ import { LandingScreen } from '../LandingScreen';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions');
 
+const mockRouterPush = jest.fn();
+
+// The screen navigates to `/login` through `useRouter`; there is no router
+// context mounted here, so stub the hook and assert on the push.
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockRouterPush, replace: jest.fn() }),
+}));
+
 // Paper's Snackbar runs an entrance animation whose `Animated.start()` callback
 // lands outside React's act() window ("not wrapped in act"). This screen only
 // uses it as a plain acknowledgement, so a synchronous stand-in keeps the
@@ -65,6 +73,7 @@ function setViewport(width: number) {
 
 afterEach(() => {
   mockedUseWindowDimensions.mockReset();
+  mockRouterPush.mockClear();
   jest.restoreAllMocks();
 });
 
@@ -98,6 +107,15 @@ describe('LandingScreen', () => {
     expect(
       screen.getByText('Example preview — your own history fills this in.'),
     ).toBeOnTheScreen();
+  });
+
+  it('navigates to the login route from the header "Log in" action', async () => {
+    setViewport(1280);
+    await renderWithProviders(<LandingScreen />);
+
+    fireEvent.press(screen.getByLabelText('Log in to Shopping Analysis'));
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/login');
   });
 
   it('acknowledges a "Get started" tap with an honest snackbar', async () => {

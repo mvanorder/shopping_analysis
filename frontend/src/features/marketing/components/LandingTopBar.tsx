@@ -9,6 +9,7 @@ import { ThemeToggle } from './ThemeToggle';
 
 type LandingTopBarProps = {
   onGetStarted: () => void;
+  onLogIn: () => void;
 };
 
 /**
@@ -17,7 +18,7 @@ type LandingTopBarProps = {
  * landing page, not an in-app screen with a back affordance, and an Appbar
  * would imply navigation chrome that does not exist here.
  */
-export function LandingTopBar({ onGetStarted }: LandingTopBarProps) {
+export function LandingTopBar({ onGetStarted, onLogIn }: LandingTopBarProps) {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const { gutter, isCompact } = useResponsive();
@@ -44,6 +45,20 @@ export function LandingTopBar({ onGetStarted }: LandingTopBarProps) {
         <BrandMark showWordmark={!isCompact} />
         <View style={styles.actions}>
           <ThemeToggle />
+          {/* Text button with a slim hit area so brand mark, toggle and both
+              actions still fit one row on the narrowest phones. */}
+          <Button
+            mode="text"
+            onPress={onLogIn}
+            compact
+            style={styles.cta}
+            contentStyle={styles.logInContent}
+            labelStyle={styles.ctaLabel}
+            accessibilityRole="button"
+            accessibilityLabel="Log in to Shopping Analysis"
+          >
+            Log in
+          </Button>
           <Button
             mode="contained"
             onPress={onGetStarted}
@@ -88,6 +103,10 @@ const styles = StyleSheet.create({
   ctaContent: {
     height: layout.minTouchTarget,
     paddingHorizontal: spacing.md,
+  },
+  logInContent: {
+    height: layout.minTouchTarget,
+    paddingHorizontal: spacing.xs,
   },
   ctaLabel: {
     marginHorizontal: spacing.xs,

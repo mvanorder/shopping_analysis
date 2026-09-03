@@ -29,6 +29,15 @@ describe('useWebFocusRing on web', () => {
     expect(style?.textContent).toContain('#0F6FD1');
   });
 
+  it('suppresses the ring on text inputs and textareas', async () => {
+    await renderHook(() => useWebFocusRing('#0F6FD1'));
+
+    const css = document.getElementById(STYLE_ID)?.textContent ?? '';
+    expect(css).toContain('input[type="text"]:focus-visible');
+    expect(css).toContain('textarea:focus-visible');
+    expect(css).toMatch(/(?:input\[type="text"\]|textarea):focus-visible[\s\S]*outline: none/);
+  });
+
   it('reuses the same style node and updates the colour when it changes', async () => {
     const { rerender } = await renderHook(
       ({ color }: { color: string }) => useWebFocusRing(color),

@@ -30,6 +30,11 @@ export function useWebFocusRing(color: string) {
         outline: 3px solid ${color} !important;
         outline-offset: 2px !important;
       }
+      input:not(type):focus-visible,
+      input[type="text"]:focus-visible,
+      textarea:focus-visible {
+        outline: none !important;
+      }
     `;
   }, [color]);
 }
