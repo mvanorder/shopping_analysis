@@ -46,6 +46,10 @@ From `backend/`, with the venv active:
   Submitting an empty password — or, in non-interactive automation, leaving both env vars unset —
   bootstraps a Google-OAuth-only account instead (see `docs/design/uac-design.md` §2). Safe to
   re-run — it promotes an existing account rather than duplicating it.
+- `python -m app.cli export-openapi [--output <path>]` — write the app's current OpenAPI schema
+  to `docs/api/openapi.json` (the default, resolved from the repo root regardless of cwd). Run
+  this after any route/schema change and commit the result — see `docs/api/README.md`. No DB
+  connection needed; it only introspects the FastAPI app object.
 
 ## Docstring conventions
 

@@ -13,7 +13,7 @@ from app.security import AccessTokenClaims
 router = APIRouter()
 
 
-@router.get("/me", response_model=UserProfile)
+@router.get("/me", response_model=UserProfile, summary="Get the current user's profile")
 async def read_current_user(
     claims: AccessTokenClaims = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

@@ -143,7 +143,12 @@ async def _authenticate_password(db: AsyncSession, email: str, password: str) ->
     return user
 
 
-@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=RegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a new account",
+)
 async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)) -> User:
     """Create a new user account with a password identity.
 
@@ -187,7 +192,7 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     return user
 
 
-@router.post("/login", response_model=TokenPairResponse)
+@router.post("/login", response_model=TokenPairResponse, summary="Log in with email and password")
 async def login(
     payload: LoginRequest,
     request: Request,
@@ -251,7 +256,7 @@ async def _revoke_all_refresh_tokens(db: AsyncSession, user_id: uuid.UUID) -> No
         token.revoked_at = now
 
 
-@router.post("/refresh", response_model=TokenPairResponse)
+@router.post("/refresh", response_model=TokenPairResponse, summary="Rotate a refresh token")
 async def refresh(
     payload: RefreshRequest,
     request: Request,
@@ -337,7 +342,7 @@ async def refresh(
     return token_pair
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Log out one session")
 async def logout(
     payload: LogoutRequest,
     claims: AccessTokenClaims = Depends(get_current_user),
@@ -371,7 +376,11 @@ async def logout(
     await db.commit()
 
 
-@router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout-all",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary='Log out every session ("sign out all devices")',
+)
 async def logout_all(
     claims: AccessTokenClaims = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

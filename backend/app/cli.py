@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import getpass
+import json
 import os
 import sys
 from pathlib import Path
@@ -12,12 +13,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
+from app.main import app as fastapi_app
 from app.models import User
 from app.security import hash_password, upsert_password_identity
 
 # Shared by both interactive prompts (email and password) so an aborted run
 # reports itself identically whichever prompt the operator was on.
 _ABORT_MESSAGE = "\nAborted; no superuser created."
+
+# backend/app/cli.py -> backend/app -> backend -> repo root, so this lands at
+# <repo root>/docs/api/openapi.json regardless of the caller's cwd (mirrors
+# app/config.py's _ENV_FILE, computed the same way relative to __file__).
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DEFAULT_OPENAPI_OUTPUT = _REPO_ROOT / "docs" / "api" / "openapi.json"
 
 
 def read_bootstrap_password() -> str | None:
@@ -217,6 +225,31 @@ async def _create_superuser(email: str) -> None:  # pragma: no cover
         await _run_create_superuser(session, email, password_hash)
 
 
+def _export_openapi(output_path: Path) -> bool:
+    """Write the app's current OpenAPI schema to a JSON file.
+
+    Purely a schema introspection of the FastAPI app object — no database
+    connection or running server required, so (unlike ``create-superuser``)
+    this is fully exercised in tests. Overwrites ``output_path`` unconditionally
+    if it already exists — that's the point for the tracked default path
+    (regenerating a committed schema), but the caller reports whether it
+    happened so a mistyped ``--output`` pointed at an unrelated existing
+    file doesn't silently clobber it without any signal.
+
+    :param output_path: Where to write the schema. Parent directories are
+        created if they don't already exist.
+    :type output_path: Path
+    :returns: Whether a file already existed at ``output_path`` before this
+        call (i.e. whether it was overwritten rather than newly created).
+    :rtype: bool
+    """
+    existed = output_path.exists()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    schema = fastapi_app.openapi()
+    output_path.write_text(json.dumps(schema, indent=2) + "\n", encoding="utf-8")
+    return existed
+
+
 def _email_arg(value: str) -> str:
     """Validate an ``--email`` value as a plausible email address.
 
@@ -291,7 +324,8 @@ class _HelpfulParser(argparse.ArgumentParser):
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the argument parser for ``python -m app.cli``.
 
-    :returns: A parser with the ``create-superuser`` subcommand registered.
+    :returns: A parser with the ``create-superuser``/``export-openapi``
+        subcommands registered.
     :rtype: argparse.ArgumentParser
     """
     parser = _HelpfulParser(prog="python -m app.cli")
@@ -305,6 +339,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--email",
         type=_email_arg,
         help="The superuser's email address. Prompted for interactively if omitted.",
+    )
+
+    export_openapi = subparsers.add_parser(
+        "export-openapi",
+        help="Write the app's current OpenAPI schema to a JSON file.",
+    )
+    export_openapi.add_argument(
+        "--output",
+        type=Path,
+        default=_DEFAULT_OPENAPI_OUTPUT,
+        help="Output path (default: docs/api/openapi.json, relative to the repo root).",
     )
     return parser
 
@@ -331,9 +376,15 @@ def main(argv: list[str] | None = None) -> int:
         asyncio.run(_create_superuser(email))
         return 0
 
-    # Unreachable while create-superuser is the only subcommand (the parser
-    # rejects anything else), but a missing dispatch branch for a future
-    # command should fail loudly here, not exit 0 having done nothing.
+    if args.command == "export-openapi":
+        overwrote = _export_openapi(args.output)
+        verb = "Overwrote" if overwrote else "Wrote"
+        print(f"{verb} OpenAPI schema at {args.output}")
+        return 0
+
+    # Unreachable while every registered subcommand is handled above, but a
+    # missing dispatch branch for a future command should fail loudly here,
+    # not exit 0 having done nothing.
     parser.error(f"unhandled command: {args.command}")  # pragma: no cover
 
 

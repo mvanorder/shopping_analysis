@@ -1,6 +1,7 @@
 """Tests for app.cli: password bootstrap/prompting, superuser upsert, and arg parsing."""
 
 import argparse
+import json
 import uuid
 from pathlib import Path
 
@@ -494,3 +495,85 @@ def test_main_dispatches_create_superuser(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert exit_code == 0
     assert calls == ["root@example.com"]
+
+
+def test_build_arg_parser_parses_export_openapi_with_default_output() -> None:
+    """Verify ``export-openapi`` parses and defaults ``--output`` to the repo-root path."""
+    args = cli.build_arg_parser().parse_args(["export-openapi"])
+
+    assert args.command == "export-openapi"
+    assert args.output == cli._DEFAULT_OPENAPI_OUTPUT  # pylint: disable=protected-access
+
+
+def test_build_arg_parser_parses_export_openapi_with_custom_output(tmp_path: Path) -> None:
+    """Verify ``--output`` overrides the default path."""
+    custom_path = tmp_path / "schema.json"
+
+    args = cli.build_arg_parser().parse_args(["export-openapi", "--output", str(custom_path)])
+
+    assert args.output == custom_path
+
+
+def test_export_openapi_writes_valid_schema(tmp_path: Path) -> None:
+    """Verify ``_export_openapi`` writes the app's real OpenAPI schema as JSON."""
+    output_path = tmp_path / "nested" / "openapi.json"
+
+    overwrote = cli._export_openapi(output_path)  # pylint: disable=protected-access
+
+    assert overwrote is False
+    written = json.loads(output_path.read_text(encoding="utf-8"))
+    assert written["info"]["title"] == "Shopping Analysis API"
+    assert "/auth/login" in written["paths"]
+    assert "/users/me" in written["paths"]
+
+
+def test_export_openapi_reports_overwrite_of_an_existing_file(tmp_path: Path) -> None:
+    """Verify re-running against an already-existing path reports it as overwritten."""
+    output_path = tmp_path / "openapi.json"
+    output_path.write_text("stale contents", encoding="utf-8")
+
+    overwrote = cli._export_openapi(output_path)  # pylint: disable=protected-access
+
+    assert overwrote is True
+    assert "stale contents" not in output_path.read_text(encoding="utf-8")
+
+
+def test_main_dispatches_export_openapi(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Verify ``main`` wires ``export-openapi`` through to ``_export_openapi`` and reports it."""
+    calls = []
+    output_path = tmp_path / "openapi.json"
+
+    def fake_export_openapi(path: Path) -> bool:
+        """Record the path it was called with instead of writing a file.
+
+        :param path: The output path ``main`` dispatched.
+        :type path: Path
+        :returns: ``False`` — pretends the file didn't already exist.
+        :rtype: bool
+        """
+        calls.append(path)
+        return False
+
+    monkeypatch.setattr(cli, "_export_openapi", fake_export_openapi)
+
+    exit_code = cli.main(["export-openapi", "--output", str(output_path)])
+
+    assert exit_code == 0
+    assert calls == [output_path]
+    output = capsys.readouterr().out
+    assert "Wrote" in output
+    assert str(output_path) in output
+
+
+def test_main_reports_overwrite_for_export_openapi(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Verify ``main`` says "Overwrote" (not "Wrote") when the file already existed."""
+    output_path = tmp_path / "openapi.json"
+    monkeypatch.setattr(cli, "_export_openapi", lambda _path: True)
+
+    cli.main(["export-openapi", "--output", str(output_path)])
+
+    assert "Overwrote" in capsys.readouterr().out
