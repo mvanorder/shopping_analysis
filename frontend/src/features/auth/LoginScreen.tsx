@@ -7,27 +7,33 @@ import {
   View,
   type TextInput as RNTextInput,
 } from 'react-native';
-import { Button, HelperText, Snackbar, Surface, Text, TextInput } from 'react-native-paper';
+import { Button, HelperText, Surface, Text, TextInput } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ApiError } from '@/api/client';
 import { BrandMark } from '@/features/marketing/components/BrandMark';
 import { heading, layout, radius, spacing, useAppTheme, useResponsive } from '@/theme';
 
 /** The credentials a submitted, client-validated login form carries. */
 export type LoginCredentials = { email: string; password: string };
 
+const GENERIC_SUBMIT_ERROR = 'Something went wrong signing you in. Please try again.';
+
 type LoginScreenProps = {
   /**
-   * Called with the validated credentials when the form is submitted.
+   * Called with the validated credentials when the form is submitted. May be
+   * async; the screen shows a busy button until it settles.
    *
-   * Not wired to the backend yet: the `/login` route leaves this undefined and
-   * the screen acknowledges a valid submission with a Snackbar instead of a
-   * dead button. Swap in the real sign-in call (`POST /auth/login`, then store
-   * the token pair) here once the API client exists; nothing else on the
-   * screen needs to change.
+   * Reject to surface an error under the button — an {@link ApiError}'s
+   * message is shown verbatim (the API's 401 copy is already user-facing),
+   * anything else falls back to a generic message. Resolve on success; the
+   * caller is responsible for navigating away.
+   *
+   * The `/login` route wires this to `POST /auth/login` + token storage; left
+   * undefined (isolated tests, previews) a valid submit is a no-op.
    */
-  onSubmit?: (credentials: LoginCredentials) => void;
+  onSubmit?: (credentials: LoginCredentials) => void | Promise<void>;
 };
 
 // Deliberately loose: a login form should reject "obviously not an email"
@@ -59,10 +65,10 @@ function validate(email: string, password: string): FieldErrors {
  * Email + password sign-in screen (route: `/login`).
  *
  * Client-side validation only gates the shape of the input; the real
- * credential check happens server-side once {@link LoginScreenProps.onSubmit}
- * is wired to `POST /auth/login`. Renders as a centred card on wide viewports
- * and a full-width column on phones, and holds the fields clear of the
- * on-screen keyboard on native.
+ * credential check happens server-side via {@link LoginScreenProps.onSubmit}
+ * (the `/login` route points it at `POST /auth/login`). Renders as a centred
+ * card on wide viewports and a full-width column on phones, and holds the
+ * fields clear of the on-screen keyboard on native.
  */
 export function LoginScreen({ onSubmit }: LoginScreenProps) {
   const theme = useAppTheme();
@@ -76,7 +82,8 @@ export function LoginScreen({ onSubmit }: LoginScreenProps) {
   const [secure, setSecure] = useState(true);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitted, setSubmitted] = useState(false);
-  const [ackVisible, setAckVisible] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // After the first submit, keep the messages honest as the user fixes each
   // field rather than leaving a stale error under a now-valid input.
@@ -85,18 +92,22 @@ export function LoginScreen({ onSubmit }: LoginScreenProps) {
     [submitted, email, password, errors],
   );
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const nextErrors = validate(email, password);
     setErrors(nextErrors);
     setSubmitted(true);
-    if (Object.keys(nextErrors).length > 0) {
+    if (Object.keys(nextErrors).length > 0 || !onSubmit) {
       return;
     }
 
-    if (onSubmit) {
-      onSubmit({ email: email.trim(), password });
-    } else {
-      setAckVisible(true);
+    setSubmitError(null);
+    setPending(true);
+    try {
+      await onSubmit({ email: email.trim(), password });
+    } catch (error) {
+      setSubmitError(error instanceof ApiError ? error.message : GENERIC_SUBMIT_ERROR);
+    } finally {
+      setPending(false);
     }
   }, [email, password, onSubmit]);
 
@@ -146,6 +157,7 @@ export function LoginScreen({ onSubmit }: LoginScreenProps) {
                 value={email}
                 onChangeText={(next) => {
                   setEmail(next);
+                  setSubmitError(null);
                   if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
                 }}
                 onSubmitEditing={() => passwordRef.current?.focus()}
@@ -171,6 +183,7 @@ export function LoginScreen({ onSubmit }: LoginScreenProps) {
                 value={password}
                 onChangeText={(next) => {
                   setPassword(next);
+                  setSubmitError(null);
                   if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
                 }}
                 onSubmitEditing={handleSubmit}
@@ -198,13 +211,22 @@ export function LoginScreen({ onSubmit }: LoginScreenProps) {
             <Button
               mode="contained"
               onPress={handleSubmit}
+              loading={pending}
+              disabled={pending}
               style={styles.submit}
               contentStyle={styles.submitContent}
               accessibilityRole="button"
               accessibilityLabel="Log in"
             >
-              Log in
+              {pending ? 'Signing in…' : 'Log in'}
             </Button>
+            <HelperText
+              type="error"
+              visible={submitError != null}
+              accessibilityLiveRegion="polite"
+            >
+              {submitError ?? ' '}
+            </HelperText>
           </Surface>
 
           <View style={styles.footer}>
@@ -223,17 +245,6 @@ export function LoginScreen({ onSubmit }: LoginScreenProps) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <Snackbar
-        visible={ackVisible}
-        onDismiss={() => setAckVisible(false)}
-        duration={4000}
-        action={{ label: 'OK', onPress: () => setAckVisible(false) }}
-        style={styles.snackbar}
-        wrapperStyle={{ bottom: insets.bottom }}
-      >
-        Sign-in isn&apos;t wired up yet — the backend API isn&apos;t connected.
-      </Snackbar>
     </View>
   );
 }
@@ -278,9 +289,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.xxs,
     marginTop: spacing.lg,
-  },
-  snackbar: {
-    alignSelf: 'center',
-    maxWidth: 520,
   },
 });

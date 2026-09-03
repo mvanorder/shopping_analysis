@@ -1,12 +1,5 @@
-import type { ReactNode } from 'react';
-
-import {
-  act,
-  fireEvent,
-  renderWithProviders,
-  screen,
-  waitFor,
-} from '../../../../test-utils/render';
+import { act, fireEvent, renderWithProviders, screen, waitFor } from '../../../../test-utils/render';
+import { ApiError } from '../../../api/client';
 import { LoginScreen } from '../LoginScreen';
 
 const mockRouterReplace = jest.fn();
@@ -15,41 +8,6 @@ const mockRouterPush = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace }),
 }));
-
-// Paper's Snackbar entrance animation resolves outside React's act() window.
-// The screen only uses it as a plain acknowledgement, so a synchronous
-// stand-in keeps the visible/dismiss behaviour without the noise. (See the
-// same pattern in the marketing LandingScreen test.)
-jest.mock('react-native-paper', () => {
-  /* eslint-disable @typescript-eslint/no-require-imports */
-  const Actual = jest.requireActual('react-native-paper');
-  const { View, Text, Pressable } = require('react-native');
-  /* eslint-enable @typescript-eslint/no-require-imports */
-  const Snackbar = (props: {
-    visible: boolean;
-    children: ReactNode;
-    onDismiss?: () => void;
-    action?: { label: string; onPress: () => void };
-  }) => {
-    if (!props.visible) return null;
-    return (
-      <View>
-        <Text>{props.children}</Text>
-        <Pressable accessibilityLabel="dismiss-snackbar" onPress={props.onDismiss}>
-          <Text>dismiss</Text>
-        </Pressable>
-        {props.action ? (
-          <Pressable accessibilityLabel={props.action.label} onPress={props.action.onPress}>
-            <Text>{props.action.label}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    );
-  };
-  return new Proxy(Actual, {
-    get: (target, prop) => (prop === 'Snackbar' ? Snackbar : target[prop]),
-  });
-});
 
 // This project's RNTL renders on a concurrent root, so firing events in a
 // synchronous run overlaps act() scopes and wedges the renderer for the rest
@@ -109,7 +67,7 @@ describe('LoginScreen', () => {
   });
 
   it('calls onSubmit with the trimmed email and password when valid', async () => {
-    const onSubmit = jest.fn();
+    const onSubmit = jest.fn().mockResolvedValue(undefined);
     await renderWithProviders(<LoginScreen onSubmit={onSubmit} />);
 
     await type('Email', '  shopper@example.com  ');
@@ -122,6 +80,35 @@ describe('LoginScreen', () => {
         password: 's3cret-pass',
       }),
     );
+  });
+
+  it('submits when the password field fires its "go" key', async () => {
+    const onSubmit = jest.fn().mockResolvedValue(undefined);
+    await renderWithProviders(<LoginScreen onSubmit={onSubmit} />);
+
+    await type('Email', 'shopper@example.com');
+    await type('Password', 's3cret-pass');
+    await act(async () => {
+      fireEvent(screen.getByLabelText('Password'), 'submitEditing');
+    });
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({
+        email: 'shopper@example.com',
+        password: 's3cret-pass',
+      }),
+    );
+  });
+
+  it('does nothing on a valid submit when no handler is wired', async () => {
+    await renderWithProviders(<LoginScreen />);
+
+    await type('Email', 'shopper@example.com');
+    await type('Password', 's3cret-pass');
+    await press('Log in');
+
+    expect(screen.getByText('Welcome back')).toBeOnTheScreen();
+    expect(screen.queryByText('Signing in…')).not.toBeOnTheScreen();
   });
 
   it('clears a field error once the user corrects it', async () => {
@@ -139,37 +126,74 @@ describe('LoginScreen', () => {
     );
   });
 
-  it('acknowledges a valid submission with a snackbar when no handler is wired', async () => {
-    await renderWithProviders(<LoginScreen />);
+  it('surfaces the API message when the sign-in call is rejected', async () => {
+    const onSubmit = jest.fn().mockRejectedValue(new ApiError(401, 'Invalid email or password'));
+    await renderWithProviders(<LoginScreen onSubmit={onSubmit} />);
 
     await type('Email', 'shopper@example.com');
-    await type('Password', 's3cret-pass');
+    await type('Password', 'wrong-pass');
     await press('Log in');
 
     await waitFor(() =>
-      expect(screen.getByText(/Sign-in isn.t wired up yet/)).toBeOnTheScreen(),
-    );
-
-    await press('OK');
-    await waitFor(() =>
-      expect(screen.queryByText(/Sign-in isn.t wired up yet/)).not.toBeOnTheScreen(),
+      expect(screen.getByText('Invalid email or password')).toBeOnTheScreen(),
     );
   });
 
-  it('dismisses the acknowledgement snackbar when it times out on its own', async () => {
-    await renderWithProviders(<LoginScreen />);
+  it('falls back to a generic message for a non-API failure', async () => {
+    const onSubmit = jest.fn().mockRejectedValue(new Error('boom'));
+    await renderWithProviders(<LoginScreen onSubmit={onSubmit} />);
 
     await type('Email', 'shopper@example.com');
     await type('Password', 's3cret-pass');
     await press('Log in');
+
     await waitFor(() =>
-      expect(screen.getByText(/Sign-in isn.t wired up yet/)).toBeOnTheScreen(),
+      expect(
+        screen.getByText('Something went wrong signing you in. Please try again.'),
+      ).toBeOnTheScreen(),
+    );
+  });
+
+  it('clears the sign-in error once the user edits a field', async () => {
+    const onSubmit = jest.fn().mockRejectedValue(new ApiError(401, 'Invalid email or password'));
+    await renderWithProviders(<LoginScreen onSubmit={onSubmit} />);
+
+    await type('Email', 'shopper@example.com');
+    await type('Password', 'wrong-pass');
+    await press('Log in');
+    await waitFor(() =>
+      expect(screen.getByText('Invalid email or password')).toBeOnTheScreen(),
     );
 
-    await press('dismiss-snackbar');
+    await type('Password', 'another-pass');
+
     await waitFor(() =>
-      expect(screen.queryByText(/Sign-in isn.t wired up yet/)).not.toBeOnTheScreen(),
+      expect(screen.queryByText('Invalid email or password')).not.toBeOnTheScreen(),
     );
+  });
+
+  it('shows a busy button while the submission is in flight', async () => {
+    let release!: () => void;
+    const onSubmit = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await renderWithProviders(<LoginScreen onSubmit={onSubmit} />);
+
+    await type('Email', 'shopper@example.com');
+    await type('Password', 's3cret-pass');
+    await press('Log in');
+
+    expect(await screen.findByText('Signing in…')).toBeOnTheScreen();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release();
+    });
+
+    await waitFor(() => expect(screen.queryByText('Signing in…')).not.toBeOnTheScreen());
   });
 
   it('handles the email "next" key without disturbing the entered value', async () => {
