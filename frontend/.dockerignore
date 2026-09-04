@@ -1,0 +1,9 @@
+# Build context for frontend/Dockerfile (context: ./frontend).
+node_modules/
+.expo/
+dist/
+web-build/
+coverage/
+.git
+*.log
+.env*.local

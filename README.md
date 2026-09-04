@@ -39,6 +39,9 @@ Project items needed per week or month. *(Not yet implemented.)*
   [`frontend/README.md`](frontend/README.md).
 - **`database/`** — Postgres image (`database/Dockerfile`) and init scripts run on first
   container start.
+- **`proxy/`** — Wolfi/Chainguard Nginx image (`proxy/Dockerfile`): the frontend host and the
+  reverse proxy in front of the backend. In dev it reverse-proxies to the Expo dev server; in
+  staging/prod it serves the baked `expo export` static build. See [`proxy/README.md`](proxy/README.md).
 - **`docs/`** — design notes; see [`docs/design/uac-design.md`](docs/design/uac-design.md)
   for the user-management, access-control, and deployment design.
 - Sample data exports (currently Walmart-only) and the exploratory notebook live locally
@@ -46,21 +49,26 @@ Project items needed per week or month. *(Not yet implemented.)*
 
 ## Deployment
 
-`docker-compose.yml` defines the base `db` + `backend` services and is never run alone —
-combine it with one environment overlay:
+`docker-compose.yml` defines the base `db` + `backend` + `proxy` services and is never run
+alone — combine it with one environment overlay:
 
 ```bash
-# Dev
+# Dev — app at http://localhost:8080 (proxy → Expo dev server + backend)
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
-# Staging / prod
-docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Staging / prod — proxy serves the baked web build; EXPO_PUBLIC_API_URL is
+# a build arg (the public URL the app is reached at), so export it first.
+export EXPO_PUBLIC_API_URL=https://shopping.example.com
+docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
 Each overlay reads its own env file (`.env.dev`, `.env.staging`, `.env.prod`; see the
 `.example` templates at the repo root). Staging and prod also read the Postgres password
-from a Docker secret file under `secrets/` (see the `.example` templates there).
+from a Docker secret file under `secrets/` (see the `.example` templates there). Dev also
+runs a `frontend` service (Expo dev server) that the proxy targets for hot reload;
+staging/prod bake the static build into the proxy image instead. See
+[`proxy/README.md`](proxy/README.md).
 
 For local development outside Docker:
 

@@ -405,9 +405,17 @@ audit_log          id (uuid), actor_user_id FK (set null, indexed), action, targ
   processes background jobs (CSV import parsing, email sending) off a queue, so a large upload
   never blocks a request-handling process. Keeping the same base image avoids dependency drift
   between the two.
-- **`frontend`** [not yet built]: the Angular production build (`npm run build`) served as static
-  files — **not** through a Python container. Locally/on a single server, Nginx serves the built
-  assets; in the cloud, they go to object storage + CDN (§7) since static assets don't need compute.
+- **`proxy` image** [built, `proxy/Dockerfile`]: Wolfi/Chainguard Nginx (same base rationale as
+  `backend`/`database`), doubling as the frontend static host and the reverse proxy in front of
+  the API — **not** a Python container. Two build targets: `dev` reverse-proxies `/` to a live
+  Expo dev-server container for hot reload; `static` (default, staging/prod) bakes the Expo web
+  export (`npx expo export --platform web`, `web.output=static`) into the image and serves it
+  from disk. Backend routes are reverse-proxied in every target. `EXPO_PUBLIC_API_URL` is a
+  build arg (Expo inlines it into the bundle). In the cloud, the static assets instead go to
+  object storage + CDN (§7) since static assets don't need compute; the API reverse-proxy role
+  is taken over by the cloud load balancer. The original design assumed an Angular frontend;
+  the app is Expo/React-Native-Web, but the "static build served by Nginx, not Python" shape is
+  unchanged.
 - Config exclusively via environment variables (12-factor) — `backend`'s `Settings`
   (`app/config.py`) reads a `POSTGRES_PASSWORD_FILE` path mirroring the `database` image's own
   Docker-secret convention, so the same code path handles a plain env var locally and a mounted
@@ -439,12 +447,17 @@ via `-f`:
 - **staging**: mirrors prod's secret handling (Docker secret file, not a plain env var) and network
   isolation — no host port on `db`, so it's only reachable from other containers.
 - **prod**: same secret-file pattern as staging, `restart: always`, and explicit CPU/memory
-  `deploy.resources` limits+reservations; `backend` still exposes port 8000 as this is the
-  single-server path (no separate reverse proxy container yet — see below).
+  `deploy.resources` limits+reservations. `proxy` publishes `:8080` as the app entry point;
+  `backend` still also publishes `:8000` for direct access.
+- **`proxy` + `frontend`**: every environment runs the `proxy` service (`proxy/Dockerfile`,
+  §6). Dev also runs a `frontend` service (Expo dev server) that `proxy` targets for hot
+  reload; staging/prod bake the static web build into the `proxy` image instead, so they run
+  no `frontend` service. `EXPO_PUBLIC_API_URL` must be exported before a staging/prod
+  `docker compose build`.
 
-**Not yet built**: a `worker` service, `redis` (job queue + refresh-token/rate-limit cache), a
-`frontend` service (Nginx serving the built static bundle), and a reverse proxy (Traefik or Caddy)
-doing automatic TLS via Let's Encrypt. Today's compose stack is DB + API only.
+**Not yet built**: a `worker` service, `redis` (job queue + refresh-token/rate-limit cache),
+and a TLS-terminating reverse proxy (Traefik or Caddy) doing automatic HTTPS via Let's Encrypt
+in front of `proxy:8080`. The compose stack is now DB + API + frontend/reverse-proxy.
 
 ### Cloud path — GCP (recommended) vs AWS
 

@@ -38,6 +38,30 @@ services:
     networks:
       - shopping-analysis
 
+  # Wolfi-based Nginx: the frontend host and the reverse proxy in front of the
+  # backend (proxy/Dockerfile, docs/design/uac-design.md §6/§7). The `static`
+  # target here bakes the Expo web export into the image and serves it from
+  # disk; docker-compose.dev.yml swaps to the `dev` target, which instead
+  # reverse-proxies to a live `frontend` container. Backend routes are
+  # reverse-proxied in every environment.
+  proxy:
+    build:
+      context: .
+      dockerfile: proxy/Dockerfile
+      target: static
+      args:
+        # Public base URL the web app resolves API calls against, inlined into
+        # the bundle at build time. Same-origin by default (empty) so calls go
+        # to this proxy and through the reverse-proxy rules; override per
+        # environment. Compose reads this from the shell env or the root .env.
+        EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:-}
+    image: shopping-analysis-proxy:local
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - shopping-analysis
+
 networks:
   shopping-analysis:
     driver: bridge

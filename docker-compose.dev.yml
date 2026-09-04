@@ -2,6 +2,11 @@
 # tools (psql, DBeaver, etc.) can connect directly, disposable volume.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# The app is served at http://localhost:8080 (the proxy). It reverse-proxies
+# backend routes to `backend` and everything else to the `frontend` container
+# running `expo start`, so hot reload works through the proxy. The backend is
+# also still published on :8000 for direct curl/docs access.
 services:
   db:
     env_file:
@@ -21,6 +26,42 @@ services:
     ports:
       - "8000:8000"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    restart: "no"
+
+  # Expo web dev server. Only exists in dev — staging/prod bake the static
+  # export into the proxy image instead. Metro is published on :8081 too so
+  # the browser can reach the HMR websocket directly if needed.
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    image: shopping-analysis-frontend:local
+    environment:
+      # Served through the proxy, so the web app talks to the proxy origin and
+      # backend calls stay same-origin (no CORS). Metro advertises itself as
+      # localhost so HMR URLs in the browser resolve.
+      EXPO_PUBLIC_API_URL: "http://localhost:8080"
+      REACT_NATIVE_PACKAGER_HOSTNAME: "localhost"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "8081:8081"
+    # Must be on the same network the base file puts db/backend/proxy on —
+    # otherwise `frontend` lands on compose's default network and the proxy
+    # can't resolve it.
+    networks:
+      - shopping-analysis
+    restart: "no"
+
+  proxy:
+    build:
+      target: dev
+    depends_on:
+      frontend:
+        condition: service_started
+    ports:
+      - "8080:8080"
     restart: "no"
 
 volumes:

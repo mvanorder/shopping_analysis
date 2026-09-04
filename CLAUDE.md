@@ -29,13 +29,22 @@ normalization, analysis, and projection are not implemented — see [`README.md`
   relying on remembered Expo APIs.
 - **`database/`** — Postgres image (`database/Dockerfile`) and `database/init/` scripts
   that run on first container start.
+- **`proxy/`** — Wolfi/Chainguard Nginx image (`proxy/Dockerfile`, build context = repo
+  root) that is both the frontend host and the reverse proxy in front of the backend.
+  Two targets: `dev` reverse-proxies `/` to a live `frontend` container (`expo start`);
+  `static` (default) bakes the `expo export` web build into the image and serves it from
+  disk. Backend routes are reverse-proxied in every environment. See
+  [`proxy/README.md`](proxy/README.md).
 - **`docs/`** — design notes; see [`docs/design/uac-design.md`](docs/design/uac-design.md)
   for the user-management, access-control, and deployment design.
-- **`docker-compose.yml`** — base `db` + `backend` services; never run alone, always
-  combined with one environment overlay (`docker-compose.dev.yml`,
-  `docker-compose.staging.yml`, `docker-compose.prod.yml`). Each overlay reads its own env
-  file (`.env.dev` / `.env.staging` / `.env.prod`; commit only the `.example` templates),
-  and staging/prod read the Postgres password from a Docker secret under `secrets/`.
+- **`docker-compose.yml`** — base `db` + `backend` + `proxy` services; never run alone,
+  always combined with one environment overlay (`docker-compose.dev.yml`,
+  `docker-compose.staging.yml`, `docker-compose.prod.yml`). Dev additionally runs a
+  `frontend` service (Expo dev server); staging/prod don't (the proxy serves the baked
+  static build). Each overlay reads its own env file (`.env.dev` / `.env.staging` /
+  `.env.prod`; commit only the `.example` templates), and staging/prod read the Postgres
+  password from a Docker secret under `secrets/`. The proxy's `static` build needs
+  `EXPO_PUBLIC_API_URL` exported as a build arg (see [`proxy/README.md`](proxy/README.md)).
 
 ## Data and the sandbox
 
@@ -55,7 +64,8 @@ read the CSV header row rather than assuming columns.
   `npm test` runs `jest --coverage` and enforces the 90% `coverageThreshold`
   in `frontend/package.json`, mirroring the backend's `--cov-fail-under=90`;
   `npm run test:watch` deliberately omits coverage.
-- Full stack in Docker: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`.
+- Full stack in Docker: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`
+  — the app is then at `http://localhost:8080` (the proxy), backend also direct on `:8000`.
 
 ## CI
 

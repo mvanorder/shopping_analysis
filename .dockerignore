@@ -1,0 +1,31 @@
+# Applies ONLY to builds whose context is the repo root — currently just
+# proxy/Dockerfile. backend/ and database/ set their own build contexts and
+# carry their own .dockerignore files, unaffected by this one.
+#
+# proxy/Dockerfile needs proxy/ and frontend/ (its `web-build` stage runs
+# `expo export`); everything else is noise in the context.
+
+.git
+.github/
+.idea/
+.vscode/
+.worktree/
+sandbox/
+docs/
+postman/
+secrets/
+
+# Never bake local env / secrets into an image.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Large / regenerated — the web-build stage runs its own `npm ci` and
+# `expo export`, so a stale host copy must not shadow the fresh build.
+**/node_modules/
+**/.venv/
+**/__pycache__/
+frontend/.expo/
+frontend/dist/
+frontend/web-build/
+frontend/coverage/
