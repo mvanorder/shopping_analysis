@@ -25,6 +25,8 @@ type JsonRequest = {
   method?: string;
   /** Serialized to JSON; omit for a bodyless request. */
   body?: unknown;
+  /** Bearer access token for a protected endpoint. */
+  token?: string;
   signal?: AbortSignal;
 };
 
@@ -43,6 +45,7 @@ export async function apiRequest<T>(path: string, options: JsonRequest = {}): Pr
       headers: {
         Accept: 'application/json',
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
       },
       body: hasBody ? JSON.stringify(options.body) : undefined,
       signal: options.signal,

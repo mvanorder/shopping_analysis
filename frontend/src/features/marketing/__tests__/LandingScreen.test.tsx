@@ -12,6 +12,20 @@ import { LandingScreen } from '../LandingScreen';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions');
 
+const mockSignOut = jest.fn();
+let mockAuth: {
+  status: 'loading' | 'authenticated' | 'unauthenticated';
+  user: { display_name: string | null; email: string } | null;
+  signOut: jest.Mock;
+};
+
+// The screen reads `useAuth()` for the top bar's signed-in state; drive it from
+// the test. The passthrough `AuthProvider` keeps `renderWithProviders` working.
+jest.mock('../../auth/AuthContext', () => ({
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+  useAuth: () => mockAuth,
+}));
+
 const mockRouterPush = jest.fn();
 
 // The screen navigates to `/login` through `useRouter`; there is no router
@@ -71,9 +85,14 @@ function setViewport(width: number) {
   });
 }
 
+beforeEach(() => {
+  mockAuth = { status: 'unauthenticated', user: null, signOut: mockSignOut };
+});
+
 afterEach(() => {
   mockedUseWindowDimensions.mockReset();
   mockRouterPush.mockClear();
+  mockSignOut.mockClear();
   jest.restoreAllMocks();
 });
 
@@ -116,6 +135,23 @@ describe('LandingScreen', () => {
     fireEvent.press(screen.getByLabelText('Log in to Shopping Analysis'));
 
     expect(mockRouterPush).toHaveBeenCalledWith('/login');
+  });
+
+  it('shows the signed-in identity and logs out from the header once authenticated', async () => {
+    setViewport(1280);
+    mockAuth = {
+      status: 'authenticated',
+      user: { display_name: null, email: 'shopper@example.com' },
+      signOut: mockSignOut,
+    };
+    await renderWithProviders(<LandingScreen />);
+
+    expect(screen.getByText('shopper@example.com')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Log in to Shopping Analysis')).not.toBeOnTheScreen();
+
+    fireEvent.press(screen.getByLabelText('Log out'));
+
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
   });
 
   it('acknowledges a "Get started" tap with an honest snackbar', async () => {

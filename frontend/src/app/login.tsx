@@ -1,21 +1,19 @@
 import { useCallback } from 'react';
 import { Stack, useRouter } from 'expo-router';
 
-import { login } from '@/features/auth/api';
+import { useAuth } from '@/features/auth/AuthContext';
 import { LoginScreen, type LoginCredentials } from '@/features/auth/LoginScreen';
-import { storeTokenPair } from '@/features/auth/tokenStorage';
 
 export default function Login() {
   const router = useRouter();
+  const { signIn } = useAuth();
 
   const handleSubmit = useCallback(
     async (credentials: LoginCredentials) => {
-      const tokens = await login(credentials);
-      await storeTokenPair(tokens);
-      // No authenticated area exists yet — land back on the marketing home.
+      await signIn(credentials);
       router.replace('/');
     },
-    [router],
+    [signIn, router],
   );
 
   return (

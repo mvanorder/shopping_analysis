@@ -1,32 +1,30 @@
 import { act, fireEvent, renderWithProviders, screen, waitFor } from '../../../test-utils/render';
 import { ApiError } from '../../api/client';
-import { login } from '../../features/auth/api';
-import { storeTokenPair } from '../../features/auth/tokenStorage';
 
 import Login from '../login';
 
 const mockReplace = jest.fn();
+const mockSignIn = jest.fn();
 
 // `Stack.Screen` only sets navigator options and needs a route context we do
-// not mount here; `useRouter` is stubbed because the route handler and the
-// footer "Get started" action both read it.
+// not mount here; `useRouter` is stubbed because the route handler reads it.
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
   useRouter: () => ({ push: jest.fn(), replace: mockReplace }),
 }));
 
-jest.mock('../../features/auth/api', () => ({ login: jest.fn() }));
-jest.mock('../../features/auth/tokenStorage', () => ({ storeTokenPair: jest.fn() }));
-
-const mockLogin = login as jest.MockedFunction<typeof login>;
-const mockStoreTokenPair = storeTokenPair as jest.MockedFunction<typeof storeTokenPair>;
-
-const tokenPair = {
-  access_token: 'access-jwt',
-  refresh_token: 'refresh-opaque',
-  token_type: 'bearer' as const,
-  expires_in: 900,
-};
+// The route delegates the actual sign-in to the auth context; stub it so the
+// test stays on the route's own job (validate -> signIn -> navigate). The
+// passthrough `AuthProvider` keeps `renderWithProviders` working.
+jest.mock('../../features/auth/AuthContext', () => ({
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+  useAuth: () => ({
+    status: 'unauthenticated',
+    user: null,
+    signIn: mockSignIn,
+    signOut: jest.fn(),
+  }),
+}));
 
 async function type(label: string, value: string) {
   await act(async () => {
@@ -53,9 +51,8 @@ describe('Login screen', () => {
     expect(screen.getByLabelText('Password')).toBeOnTheScreen();
   });
 
-  it('logs in, stores the token pair, and returns home on success', async () => {
-    mockLogin.mockResolvedValue(tokenPair);
-    mockStoreTokenPair.mockResolvedValue();
+  it('signs in with the trimmed credentials and returns home on success', async () => {
+    mockSignIn.mockResolvedValue(undefined);
 
     await renderWithProviders(<Login />);
     await type('Email', '  shopper@example.com  ');
@@ -63,17 +60,16 @@ describe('Login screen', () => {
     await press('Log in');
 
     await waitFor(() =>
-      expect(mockLogin).toHaveBeenCalledWith({
+      expect(mockSignIn).toHaveBeenCalledWith({
         email: 'shopper@example.com',
         password: 's3cret-pass',
       }),
     );
-    expect(mockStoreTokenPair).toHaveBeenCalledWith(tokenPair);
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/'));
   });
 
-  it('surfaces a rejected login and does not store a token or navigate', async () => {
-    mockLogin.mockRejectedValue(new ApiError(401, 'Invalid email or password'));
+  it('surfaces a rejected sign-in and does not navigate', async () => {
+    mockSignIn.mockRejectedValue(new ApiError(401, 'Invalid email or password'));
 
     await renderWithProviders(<Login />);
     await type('Email', 'shopper@example.com');
@@ -83,7 +79,6 @@ describe('Login screen', () => {
     await waitFor(() =>
       expect(screen.getByText('Invalid email or password')).toBeOnTheScreen(),
     );
-    expect(mockStoreTokenPair).not.toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-nati
 import { Snackbar } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAuth } from '@/features/auth/AuthContext';
 import { useAppTheme } from '@/theme';
 
 import { BottomCtaSection } from './components/BottomCtaSection';
@@ -22,11 +23,15 @@ import { SeeItInActionSection } from './components/SeeItInActionSection';
  * doing nothing - a dead primary button is worse than an honest "not built
  * yet". Swap `handleGetStarted` for the real sign-up route once it exists.
  * "Log in", by contrast, does have a destination: it navigates to `/login`.
+ *
+ * Once a session is authenticated the top bar shows the signed-in identity and
+ * a "Log out" action in place of "Log in" / "Get started".
  */
 export function LandingScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { status, user, signOut } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   const howItWorksY = useRef(0);
   const headerHeight = useRef(0);
@@ -39,6 +44,11 @@ export function LandingScreen() {
   const handleLogIn = useCallback(() => {
     router.push('/login');
   }, [router]);
+
+  const account =
+    status === 'authenticated' && user
+      ? { label: user.display_name ?? user.email, onLogOut: () => void signOut() }
+      : undefined;
 
   const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => {
     headerHeight.current = event.nativeEvent.layout.height;
@@ -67,7 +77,11 @@ export function LandingScreen() {
         contentContainerStyle={{ backgroundColor: theme.colors.background }}
       >
         <View onLayout={handleHeaderLayout}>
-          <LandingTopBar onGetStarted={handleGetStarted} onLogIn={handleLogIn} />
+          <LandingTopBar
+            onGetStarted={handleGetStarted}
+            onLogIn={handleLogIn}
+            account={account}
+          />
         </View>
 
         <HeroSection

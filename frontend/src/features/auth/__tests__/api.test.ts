@@ -1,5 +1,5 @@
 import { apiRequest } from '../../../api/client';
-import { login } from '../api';
+import { fetchCurrentUser, login, logout } from '../api';
 
 jest.mock('../../../api/client', () => ({ apiRequest: jest.fn() }));
 
@@ -34,5 +34,29 @@ describe('login', () => {
     mockApiRequest.mockRejectedValue(new Error('boom'));
 
     await expect(login({ email: 'x@y.co', password: 'bad' })).rejects.toThrow('boom');
+  });
+});
+
+describe('fetchCurrentUser', () => {
+  it('GETs /users/me with the access token', async () => {
+    mockApiRequest.mockResolvedValue({ id: '1', email: 'a@b.co' });
+
+    await fetchCurrentUser('access-jwt');
+
+    expect(mockApiRequest).toHaveBeenCalledWith('/users/me', { token: 'access-jwt' });
+  });
+});
+
+describe('logout', () => {
+  it('POSTs the refresh token to /auth/logout with the access token', async () => {
+    mockApiRequest.mockResolvedValue(undefined);
+
+    await logout('access-jwt', 'refresh-opaque');
+
+    expect(mockApiRequest).toHaveBeenCalledWith('/auth/logout', {
+      method: 'POST',
+      token: 'access-jwt',
+      body: { refresh_token: 'refresh-opaque' },
+    });
   });
 });

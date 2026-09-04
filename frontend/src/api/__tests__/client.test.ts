@@ -55,6 +55,15 @@ describe('apiRequest', () => {
     expect(init.headers).not.toHaveProperty('Content-Type');
   });
 
+  it('adds a bearer Authorization header when a token is given', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, {}));
+
+    await apiRequest('/users/me', { token: 'access-jwt' });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer access-jwt' });
+  });
+
   it('resolves undefined for an empty response body', async () => {
     fetchMock.mockResolvedValue(makeResponse(204));
 
