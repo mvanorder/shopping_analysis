@@ -7,7 +7,7 @@ from pathlib import Path
 
 EDIT_TOOL_NAMES = {"Edit", "Write", "MultiEdit"}
 REVIEW_TOOL_NAMES = {"Agent", "Task"}
-CODE_REVIEWER_SUBAGENT = "backend-code-reviewer"
+CODE_REVIEWER_SUBAGENTS = {"backend-code-reviewer", "frontend-code-reviewer"}
 
 
 def repo_root() -> Path:
@@ -66,6 +66,35 @@ def is_in_scope_app_file(path: Path, root: Path) -> bool:
         return False
     excluded = {"__pycache__", ".venv"}
     return not excluded & set(resolved.relative_to(app_dir).parts)
+
+
+# Files that define the API's contract: which endpoints exist, what they
+# accept/return, and what auth they require. Deliberately excludes
+# app/security.py/app/config.py — those are implementation details (hashing
+# algorithm, signing keys) that don't change the interaction/output surface
+# on their own; a contract change there would show up here too because it'd
+# require touching a router or schemas.py to actually take effect.
+_API_SURFACE_FILES = {
+    "backend/app/main.py",
+    "backend/app/schemas.py",
+    "backend/app/dependencies.py",
+}
+_API_SURFACE_DIR_PREFIXES = ("backend/app/routers/",)
+
+
+def is_api_surface_file(relpath: str) -> bool:
+    """Return True if ``relpath`` defines the API's request/response contract.
+
+    :param relpath: A repo-relative path, as returned by
+        :func:`backend_git_status` (POSIX-style separators).
+    :type relpath: str
+    :returns: Whether a change to this file can change how the API is
+        interacted with, or what it outputs.
+    :rtype: bool
+    """
+    if relpath in _API_SURFACE_FILES:
+        return True
+    return any(relpath.startswith(prefix) for prefix in _API_SURFACE_DIR_PREFIXES)
 
 
 class GitStatusError(RuntimeError):
@@ -135,25 +164,23 @@ def lint_files(
     return True, ""
 
 
-def backend_git_status(root: Path) -> list[tuple[str, str]]:
-    """Return (status, relpath) pairs for backend/app and backend/tests changes.
+def git_status_for_paths(root: Path, paths: list[str]) -> list[tuple[str, str]]:
+    """Return (status, relpath) pairs for changes under the given repo-relative paths.
 
     :param root: Repository root.
     :type root: Path
+    :param paths: Repo-relative pathspecs to scope ``git status`` to (e.g.
+        ``["backend/app", "backend/tests"]``).
+    :type paths: list[str]
     :raises GitStatusError: If the ``git status`` invocation itself fails
         (as opposed to succeeding with an empty result), so a broken git
         invocation can never be mistaken for "nothing changed."
-    :returns: Parsed ``git status --porcelain`` entries scoped to
-        ``backend/app`` and ``backend/tests``. Rename/copy entries
-        (``"old/path -> new/path"``) are collapsed to their destination
-        path.
+    :returns: Parsed ``git status --porcelain`` entries. Rename/copy entries
+        (``"old/path -> new/path"``) are collapsed to their destination path.
     :rtype: list[tuple[str, str]]
     """
     result = run(
-        [
-            "git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=all",
-            "--", "backend/app", "backend/tests",
-        ],
+        ["git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=all", "--", *paths],
         root,
     )
     if result.returncode != 0:
@@ -166,3 +193,30 @@ def backend_git_status(root: Path) -> list[tuple[str, str]]:
         rest = rest.split(" -> ", 1)[-1]
         pairs.append((status, rest))
     return pairs
+
+
+def backend_git_status(root: Path) -> list[tuple[str, str]]:
+    """Return (status, relpath) pairs for backend/app and backend/tests changes.
+
+    :param root: Repository root.
+    :type root: Path
+    :raises GitStatusError: If the ``git status`` invocation itself fails.
+    :returns: Parsed ``git status --porcelain`` entries scoped to
+        ``backend/app`` and ``backend/tests``.
+    :rtype: list[tuple[str, str]]
+    """
+    return git_status_for_paths(root, ["backend/app", "backend/tests"])
+
+
+def docs_and_postman_status(root: Path) -> list[tuple[str, str]]:
+    """Return (status, relpath) pairs for docs/api and postman changes.
+
+    :param root: Repository root.
+    :type root: Path
+    :raises GitStatusError: If the ``git status`` invocation itself fails.
+    :returns: Parsed ``git status --porcelain`` entries scoped to
+        ``docs/api`` (the generated OpenAPI schema, see
+        ``docs/api/README.md``) and ``postman`` (the Postman collection).
+    :rtype: list[tuple[str, str]]
+    """
+    return git_status_for_paths(root, ["docs/api", "postman"])

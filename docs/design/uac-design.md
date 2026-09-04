@@ -4,8 +4,12 @@ Status: draft, for review. Partially implemented: most of §5's schema (`users`,
 `auth_identities`, `refresh_tokens`, `roles`, `permissions`, `role_permissions`, `user_roles`,
 `audit_log`) exists as an ORM model + migration, and the container/compose scaffolding (§6–§8) is
 built. `orders`/`order_items` are deliberately excluded pending plan refinement (see §5). The
-*behavior* on top of the built schema is also not there yet: password hashing, JWT issuance, RBAC
-enforcement (§3), and the Google OAuth flow (§4) are all still design-only.
+`create-superuser` bootstrap CLI (§2) is built, including argon2 password hashing. The core
+password-auth HTTP loop is also now built and verified end-to-end against a real Postgres instance:
+`register`/`login`/`refresh`/`logout`/`logout-all`, JWT issuance/verification, and the
+`get_current_user` dependency (§1 "Authentication endpoints"). Still design-only: RBAC enforcement
+(§3), the Google OAuth flow (§4), and email verification/password reset (both need an email sender
+that doesn't exist yet).
 Scope: user accounts, authentication, authorization (RBAC), and the container/deployment
 architecture needed to run this at anywhere from single-user to millions-of-users scale.
 
@@ -44,8 +48,10 @@ models matching this shape, with a few concrete choices the design above left op
   'google'))` in addition to whatever the app layer enforces, so an invalid provider value can't
   reach the table even from a bug or a manual `INSERT`.
 - `refresh_tokens.ip_address` is a Postgres `INET` column rather than plain text.
-- Password hashing (argon2), JWT issuance, and the Google OAuth flow itself are not implemented
-  yet — only the schema these depend on exists so far.
+- Argon2 password hashing exists (`backend/app/cli.py`), but only the `create-superuser`
+  bootstrap path (§2) uses it — there's no login endpoint that verifies a password yet. JWT
+  issuance and the Google OAuth flow itself are not implemented — only the schema these depend
+  on exists so far.
 - The `roles`/`permissions`/`role_permissions`/`user_roles` (§3) and `audit_log` (§5) tables are
   also now built as models (`app/models/rbac.py`, `app/models/audit.py`) — see §5 for the
   specifics. `orders`/`order_items` are not built yet, pending plan refinement (§5). RBAC
@@ -75,10 +81,93 @@ scaled API instances. Instead:
 - This means logout / "sign out all devices" / admin-forced revocation all just delete or mark
   rows in `refresh_tokens` — no server-side session store needed for the hot path.
 
+**Implemented** (`backend/app/security.py`): `create_access_token`/`decode_access_token` (RS256,
+via `pyjwt[crypto]`) and `generate_refresh_token`/`hash_refresh_token`. Two simplifications versus
+the design above, both because RBAC (§3) isn't built yet: the access token's payload today is only
+`sub`/`iat`/`exp` — no role/permission claims, since there are no roles to cache — and refresh
+tokens are hashed with **SHA-256, not argon2** (deliberately: they're already 256 bits of uniform
+random data, not a low-entropy human password, and `POST /auth/refresh` needs to find a row by
+exact hash equality, which a per-call-salted hash can't support without a full-table scan — see
+the function's docstring). Revisit the access-token payload once §3 lands.
+
+### Authentication endpoints [core password loop implemented; see below for what isn't]
+
+Everything above describes the token *strategy*; this is the HTTP surface that actually issues
+and consumes them. `register`/`login`/`refresh`/`logout`/`logout-all`/`GET /users/me` are built
+(`backend/app/routers/auth.py`, `backend/app/routers/users.py`, `backend/app/dependencies.py`);
+`verify-email`, `password-reset`, and the Google OAuth endpoints (§4) are not — see the table
+below for which is which. This is separate from the `create-superuser` CLI (§2), which writes
+`users`/`auth_identities` rows directly rather than going through this API.
+
+**Transport.** The access token travels as a standard `Authorization: Bearer <token>` header —
+not a cookie — because Expo Router (`frontend/`) ships the same codebase to native iOS/Android and
+web, and a header is the one mechanism that works identically across all three without a
+web-only/native-only branch in the HTTP client. The refresh token is returned once, in the
+`POST /auth/login` response body, and the client is responsible for storing it (Expo
+`SecureStore` on native; **web storage is an open question below** — `localStorage` is readable by
+any injected script, so it carries real XSS exposure that native's SecureStore doesn't).
+
+**Endpoints:**
+
+| Endpoint | Auth required | Does |
+|---|---|---|
+| `POST /auth/register` **[built]** | none | Create a `users` row + a `password` `auth_identities` row. Simplification: leaves `email_verified=False` but does **not** block login on it (no verification flow exists — see Account states below) — the account behaves as fully active immediately. |
+| `POST /auth/verify-email` | none (token in body) | Consume a verification token; flip `email_verified`/state to `active`. **Not built** — needs an email sender that doesn't exist. |
+| `POST /auth/login` **[built]** | none | Verify `email`+`password` against `auth_identities.secret_hash` (argon2), reject if the account is `is_active=False`; on success, update `last_login_at` and issue an access/refresh token pair. Every failure mode (unknown email, wrong password, Google-only account, disabled account) returns the *same* generic 401 — deliberate anti-enumeration, not an oversight. |
+| `POST /auth/refresh` **[built]** | refresh token (body) | Validate + rotate the refresh token; issue a new pair. See the reuse-detection note below. |
+| `POST /auth/logout` **[built]** | access token | Revoke the refresh token tied to the current session/device — silently a no-op (still 204) if that token doesn't exist or belongs to someone else, so an authenticated caller can't use this to force-log-out another user or probe whether a token exists. |
+| `POST /auth/logout-all` **[built]** | access token | Revoke every `refresh_tokens` row for the user ("sign out all devices"). |
+| `POST /auth/password-reset` / `POST /auth/password-reset/confirm` | none | Same short-lived-token pattern as email verification. **Not built** — same email-sender gap. |
+| `GET /auth/google/login`, `GET /auth/google/callback` | none | The OAuth flow specified in §4. **Not built.** |
+| `GET /users/me` **[built]** | access token | Return the caller's own profile, re-fetched from the DB by the token's `sub` rather than trusting cached claims — the simplest possible exercise of the dependency below. |
+
+**Refresh-token rotation/reuse, concretely** (`backend/app/routers/auth.py`): looked up by exact
+SHA-256 hash equality. An unknown hash, or a not-yet-revoked-but-expired token, is a plain 401 (the
+latter is also opportunistically marked revoked). A token that's already revoked being presented
+again is treated as theft: **every** other active `refresh_tokens` row for that user is revoked
+too (whole-account, not just the affected device — a `family_id` column to scope this down to one
+device chain is a deliberate, documented follow-up, not built), a warning is logged, and the same
+generic 401 is returned. Verified against a real dev Postgres instance end-to-end: reusing a
+rotated-out token 401s, and the token issued by that same rotation is also revoked as a result.
+
+**Enforcement dependency [built]** (`backend/app/dependencies.py`). `get_current_user` does the
+verification any protected route needs:
+
+1. Extract the bearer token via `HTTPBearer(auto_error=False)` — **not** `OAuth2PasswordBearer`,
+   which assumes a spec-compliant form-encoded `/token` endpoint; `POST /auth/login` takes JSON.
+2. Verify the JWT signature and expiry (RS256 public key, no DB hit — §1 Sessions and tokens).
+3. Return a lightweight claims object (`user_id`, `expires_at`) — *not* a `users` row fetch on
+   every request. (No cached role/permission snapshot yet — see the note under Sessions and
+   tokens above; that's added once §3 is built.)
+4. `require_permission("orders:write")` (§3) is **not built** — it would wrap this same
+   dependency and add the permission check on top once RBAC lands.
+
+**Error contract**, so the frontend can branch on it without parsing prose:
+
+- **401** — missing, malformed, expired, or signature-invalid access token. The frontend's
+  response is always the same regardless of *which* of those it was: silently attempt
+  `POST /auth/refresh`, and only surface a login prompt if that also fails.
+- **403** — the token is valid but `require_permission` says no (§3's "can this role do this" or
+  the ownership check both land here). The frontend should *not* retry or refresh on 403 — retrying
+  a refresh won't fix an authorization gap. **Not reachable yet** — nothing returns 403 until §3's
+  `require_permission` exists.
+- Login/register/refresh failures use **400** (malformed request, e.g. duplicate email on
+  register) vs **401** (bad credentials/token) as built today; **429** (rate-limited) is **not
+  built** — no Redis exists yet to back one (§7) — but `backend/app/routers/auth.py` marks exactly
+  where a rate-limiting `Depends(...)` would slot into `login`/`register`/`refresh`.
+
 ### Account states
 
 `pending_verification` → `active` → `disabled` (admin action) — enforced as a check in the auth
 dependency, not scattered across endpoints.
+
+**Implementation note:** there's no `pending_verification` state actually enforced today — reaching
+`active` needs the (not-built) email verification flow, so `POST /auth/register` leaves the account
+immediately usable (`email_verified=False`, but login doesn't check it) rather than blocking it in
+limbo. The one gate that *is* enforced is `is_active` (→ `disabled`), checked in
+`_authenticate_password` (`backend/app/routers/auth.py`). No new column was added for this —
+`users.is_active`/`email_verified` (already migrated, §5) are enough to approximate the state
+machine until the verification flow exists to justify a dedicated state column.
 
 ---
 
@@ -103,6 +192,49 @@ Bootstrapping the first superuser:
   login, given the blast radius of that credential.
 - Superuser actions (role grants, user disable/enable, impersonation) are written to the
   `audit_log` table (§5) with actor, action, target, and timestamp.
+
+**Implemented** (`backend/app/cli.py`, tested in `backend/tests/test_cli.py`):
+`python -m app.cli create-superuser [--email <email>]`.
+
+- **Email.** `--email` is validated with a deliberately loose plausibility check (rejects a
+  missing `@`, stray whitespace, a bare hostname) — not full RFC 5322 — so an obvious typo
+  doesn't become a permanent `users` row no one can log into. If `--email` is omitted, the
+  command prompts for it interactively and re-prompts until the value passes that check; when
+  there's no terminal (CI / deploy automation) the flag is required and its absence is a usage
+  error.
+- **Password source, in precedence order:** `SUPERUSER_PASSWORD`, then `SUPERUSER_PASSWORD_FILE`
+  (a path — mirroring the `POSTGRES_PASSWORD` / `POSTGRES_PASSWORD_FILE` convention and the
+  staging/prod Docker secret in §6), then — only at a terminal — an interactive prompt that
+  asks twice and re-prompts on a mismatch. A value from the env var or the file is stripped; a
+  prompted value is used verbatim apart from the blank check. A set-but-blank env var or an
+  unreadable / non-UTF-8 secret file is a hard error, not a silent fallback.
+- **Google-only bootstrap.** A blank password at the prompt — or, in non-interactive automation,
+  leaving both env vars unset — creates the account with **no `password` `auth_identities`
+  row**. First login then goes through the Google flow, which links a `google` identity to the
+  existing row by verified email (§4).
+- **Password identity.** When a password is supplied it's hashed with **argon2**
+  (`argon2.PasswordHasher`, matching §1's "Password handling") and written to `auth_identities`
+  as `provider='password'`, `provider_user_id = users.id`.
+- **Idempotent, sequential.** With no matching account the command inserts one
+  (`is_superuser=true`, `email_verified=true` — the operator is trusted to have verified the
+  address out of band); with a matching account it promotes that row in place
+  (`is_superuser=true`) and, if a password was supplied, creates or updates (rotates) its
+  `password` identity. Safe to re-run (e.g. on every deploy). It is **not** safe to run
+  concurrently for the same not-yet-existing email — both invocations would insert and the loser
+  hits the `users.email` unique constraint.
+
+Not yet built / open decisions:
+
+- **MFA (TOTP)** for superuser accounts — still design-only (open question 2).
+- The **promotion path** flips only `is_superuser`; it does not set `email_verified` on an
+  existing (possibly unverified) row, and it trusts whatever row matches the email. Once a login
+  layer exists that gates on `email_verified` or on account state (§1 "Account states"), decide
+  whether promotion should also verify the address and whether it should refuse a disabled
+  account.
+- The prompted password has **no strength or length floor** beyond "not blank". Consider a
+  minimum length with a re-prompt, given this is the one credential that bypasses RBAC.
+- **Audit logging** of the bootstrap action — the command prints what it did but writes no
+  `audit_log` row (there's no actor yet at bootstrap time).
 
 ---
 
@@ -273,9 +405,17 @@ audit_log          id (uuid), actor_user_id FK (set null, indexed), action, targ
   processes background jobs (CSV import parsing, email sending) off a queue, so a large upload
   never blocks a request-handling process. Keeping the same base image avoids dependency drift
   between the two.
-- **`frontend`** [not yet built]: the Angular production build (`npm run build`) served as static
-  files — **not** through a Python container. Locally/on a single server, Nginx serves the built
-  assets; in the cloud, they go to object storage + CDN (§7) since static assets don't need compute.
+- **`proxy` image** [built, `proxy/Dockerfile`]: Wolfi/Chainguard Nginx (same base rationale as
+  `backend`/`database`), doubling as the frontend static host and the reverse proxy in front of
+  the API — **not** a Python container. Two build targets: `dev` reverse-proxies `/` to a live
+  Expo dev-server container for hot reload; `static` (default, staging/prod) bakes the Expo web
+  export (`npx expo export --platform web`, `web.output=static`) into the image and serves it
+  from disk. Backend routes are reverse-proxied in every target. `EXPO_PUBLIC_API_URL` is a
+  build arg (Expo inlines it into the bundle). In the cloud, the static assets instead go to
+  object storage + CDN (§7) since static assets don't need compute; the API reverse-proxy role
+  is taken over by the cloud load balancer. The original design assumed an Angular frontend;
+  the app is Expo/React-Native-Web, but the "static build served by Nginx, not Python" shape is
+  unchanged.
 - Config exclusively via environment variables (12-factor) — `backend`'s `Settings`
   (`app/config.py`) reads a `POSTGRES_PASSWORD_FILE` path mirroring the `database` image's own
   Docker-secret convention, so the same code path handles a plain env var locally and a mounted
@@ -307,12 +447,17 @@ via `-f`:
 - **staging**: mirrors prod's secret handling (Docker secret file, not a plain env var) and network
   isolation — no host port on `db`, so it's only reachable from other containers.
 - **prod**: same secret-file pattern as staging, `restart: always`, and explicit CPU/memory
-  `deploy.resources` limits+reservations; `backend` still exposes port 8000 as this is the
-  single-server path (no separate reverse proxy container yet — see below).
+  `deploy.resources` limits+reservations. `proxy` publishes `:8080` as the app entry point;
+  `backend` still also publishes `:8000` for direct access.
+- **`proxy` + `frontend`**: every environment runs the `proxy` service (`proxy/Dockerfile`,
+  §6). Dev also runs a `frontend` service (Expo dev server) that `proxy` targets for hot
+  reload; staging/prod bake the static web build into the `proxy` image instead, so they run
+  no `frontend` service. `EXPO_PUBLIC_API_URL` must be exported before a staging/prod
+  `docker compose build`.
 
-**Not yet built**: a `worker` service, `redis` (job queue + refresh-token/rate-limit cache), a
-`frontend` service (Nginx serving the built static bundle), and a reverse proxy (Traefik or Caddy)
-doing automatic TLS via Let's Encrypt. Today's compose stack is DB + API only.
+**Not yet built**: a `worker` service, `redis` (job queue + refresh-token/rate-limit cache),
+and a TLS-terminating reverse proxy (Traefik or Caddy) doing automatic HTTPS via Let's Encrypt
+in front of `proxy:8080`. The compose stack is now DB + API + frontend/reverse-proxy.
 
 ### Cloud path — GCP (recommended) vs AWS
 
@@ -371,3 +516,13 @@ lock the project out of moving to Cloud Run/ECS later without a rewrite.
 3. Job queue choice for the `worker` image — Celery (mature, heavier) vs RQ (simpler, Redis-only)?
 4. Do we need org/team-scoped sharing of order data in the medium term? It doesn't change §1–3
    much now, but affects whether RBAC roles should be scoped per-resource sooner rather than later.
+5. `orders`/`order_items` schema (§5) needs its plan refined before implementation: what's the
+   import-time dedup key for a re-uploaded CSV (order number alone, or order number + retailer)?
+   Is `order_number` unique per-user or globally, given different retailers can reuse the same
+   numbering scheme? What's the final shape of `tracking_numbers` — a Postgres array, a JSONB list,
+   or a separate `order_shipments` table if a single order can ship in multiple packages with
+   different carriers?
+6. `create-superuser` promotion semantics (§2), to settle when the login layer lands: should
+   promoting an existing account also set `email_verified = true`, and should it refuse a
+   `disabled` account rather than silently re-enabling privileges? Should the interactive
+   password prompt enforce a minimum length?

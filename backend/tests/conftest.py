@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_db
 from app.main import app
-from tests.fakes import FakeAsyncSession
+from tests.fakes import FakeAsyncSession, FakeSession
 
 
 @pytest.fixture
@@ -48,6 +48,45 @@ def db_client_factory() -> Generator[Callable[[bool], TestClient]]:
             :rtype: AsyncGenerator[FakeAsyncSession]
             """
             yield FakeAsyncSession(raise_error=raise_error)
+
+        app.dependency_overrides[get_db] = _override_get_db
+        return TestClient(app)
+
+    yield _make_client
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def session_client_factory() -> Generator[Callable[[FakeSession], TestClient]]:
+    """Provide a factory for a ``TestClient`` backed by a caller-built ``FakeSession``.
+
+    Unlike :func:`db_client_factory` (a plain success/failure toggle for
+    ``/health/db``), auth endpoints need a session that tracks queued query
+    results, staged inserts, and commit/rollback calls — so the caller
+    builds and configures the :class:`~tests.fakes.FakeSession` itself and
+    this fixture just wires it in as ``get_db``.
+
+    :returns: A generator yielding a factory that takes a ``FakeSession``
+        and returns a ``TestClient`` using it for every request.
+    :rtype: Generator[Callable[[FakeSession], TestClient]]
+    """
+
+    def _make_client(session: FakeSession) -> TestClient:
+        """Build a ``TestClient`` whose ``get_db`` always yields ``session``.
+
+        :param session: The fake session every request should receive.
+        :type session: FakeSession
+        :returns: A ``TestClient`` with the dependency override applied.
+        :rtype: TestClient
+        """
+
+        async def _override_get_db():
+            """Yield the configured fake session in place of the real ``get_db``.
+
+            :returns: An async generator yielding ``session``.
+            :rtype: AsyncGenerator[FakeSession]
+            """
+            yield session
 
         app.dependency_overrides[get_db] = _override_get_db
         return TestClient(app)

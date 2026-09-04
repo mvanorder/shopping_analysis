@@ -1,8 +1,9 @@
-"""Stop hook: enforce test-touched, code-review, and lint/test gates.
+"""Stop hook: enforce test-touched, code-review, API-docs, and lint/test gates.
 
 Registered in .claude/settings.json under Stop (no matcher, fires every
 Stop). Fully stateless: everything is derived from current git status
-scoped to backend/app and backend/tests, plus the session transcript.
+scoped to backend/app, backend/tests, docs/api, and postman, plus the
+session transcript.
 
 Note: this hook runs ``pytest`` (which imports and executes application
 code) unattended against whatever was just written to backend/app, with
@@ -17,13 +18,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Pylint's wrong-import-position is disabled here befause the import below depends on the sys.path modification above.
 from hooks_common import (  # noqa: E402  pylint: disable=wrong-import-position
-    CODE_REVIEWER_SUBAGENT,
+    CODE_REVIEWER_SUBAGENTS,
     EDIT_TOOL_NAMES,
     REVIEW_TOOL_NAMES,
     GitStatusError,
     backend_git_status,
+    docs_and_postman_status,
     extract_file_paths,
+    is_api_surface_file,
     is_in_scope_app_file,
     lint_files,
     read_stdin_json,
@@ -97,19 +101,59 @@ def _review_gate_failure(transcript_path: str, root: Path) -> str | None:
                             break
                 elif (
                     name in REVIEW_TOOL_NAMES
-                    and block_input.get("subagent_type") == CODE_REVIEWER_SUBAGENT
+                    and block_input.get("subagent_type") in CODE_REVIEWER_SUBAGENTS
                 ):
                     if last_review_ts is None or ts > last_review_ts:
                         last_review_ts = ts
 
     if last_edit_ts is not None and (last_review_ts is None or last_review_ts < last_edit_ts):
         return (
-            f"backend/app files were modified since the last {CODE_REVIEWER_SUBAGENT} "
-            f"run (or none has run this session) — invoke the {CODE_REVIEWER_SUBAGENT} "
-            f'subagent via the Task tool (subagent_type: "{CODE_REVIEWER_SUBAGENT}") '
+            "backend/app files were modified since the last code-reviewer run "
+            "(or none has run this session) — invoke the backend-code-reviewer "
+            "subagent via the Task tool (subagent_type: \"backend-code-reviewer\") "
             "before finishing."
         )
     return None
+
+
+def _api_docs_gate_failure(root: Path, app_changed: list[str]) -> str | None:
+    """Check that an API-surface change also updated the OpenAPI docs and Postman collection.
+
+    :param root: Repository root.
+    :type root: Path
+    :param app_changed: Changed ``backend/app/*.py`` paths (from
+        :func:`~hooks_common.backend_git_status`).
+    :type app_changed: list[str]
+    :raises GitStatusError: If the ``git status`` invocation itself fails.
+    :returns: A failure message if the docs/Postman update is missing, else
+        None (including when no API-surface file changed at all).
+    :rtype: str | None
+    """
+    surface_changed = sorted(p for p in app_changed if is_api_surface_file(p))
+    if not surface_changed:
+        return None
+
+    docs_status = docs_and_postman_status(root)
+    openapi_updated = any(p.startswith("docs/api/") for _, p in docs_status)
+    postman_updated = any(p.startswith("postman/") for _, p in docs_status)
+    if openapi_updated and postman_updated:
+        return None
+
+    missing = []
+    if not openapi_updated:
+        missing.append(
+            "regenerate docs/api/openapi.json (`python -m app.cli export-openapi` from "
+            "backend/, with the venv active)"
+        )
+    if not postman_updated:
+        missing.append("update the Postman collection under postman/ to match")
+    return (
+        "How the API is interacted with (or what it outputs) changed in "
+        + ", ".join(surface_changed)
+        + " but this wasn't reflected in the API docs — "
+        + " and ".join(missing)
+        + "."
+    )
 
 
 def main() -> int:
@@ -151,6 +195,14 @@ def main() -> int:
         review_failure = _review_gate_failure(transcript_path, root)
         if review_failure:
             failures.append(review_failure)
+
+    try:
+        api_docs_failure = _api_docs_gate_failure(root, app_changed)
+    except GitStatusError as exc:
+        failures.append(f"Could not verify docs/api + postman changes: {exc}")
+    else:
+        if api_docs_failure:
+            failures.append(api_docs_failure)
 
     if app_changed:
         rel_paths = [str(Path(p).relative_to("backend")) for p in app_changed]

@@ -36,6 +36,25 @@ services:
           cpus: "1.0"
           memory: 512M
 
+  # Serves the baked Expo web export and reverse-proxies the backend. This is
+  # the app's entry point; the TLS-terminating reverse proxy (Caddy/Traefik,
+  # not yet built — see docs/design/uac-design.md §7) sits in front of :8080.
+  proxy:
+    build:
+      target: static
+      args:
+        # Must be the public base URL staging is reached at — inlined into the
+        # web bundle at build time. Export it before `docker compose build`.
+        EXPO_PUBLIC_API_URL: ${EXPO_PUBLIC_API_URL:?set EXPO_PUBLIC_API_URL to the public staging URL before building}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
 secrets:
   postgres_password:
     file: ./secrets/postgres_password_staging.txt

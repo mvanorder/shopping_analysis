@@ -1,0 +1,336 @@
+{
+  "info": {
+    "_postman_id": "6b49adc0-1d36-48fa-bfd9-cbbeda5fd6ea",
+    "name": "Shopping Analysis API",
+    "description": "Backend for the Shopping Analysis project. Covers every endpoint in docs/api/openapi.json: health checks, order-history CSV upload, and the register/login/refresh/logout auth loop (see docs/design/uac-design.md §1). Run the Auth folder top-to-bottom once to populate the tokens the Users/logout requests need — see postman/README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000", "type": "string" },
+    { "key": "test_email", "value": "", "type": "string" },
+    { "key": "test_password", "value": "", "type": "string" },
+    { "key": "access_token", "value": "", "type": "string" },
+    { "key": "refresh_token", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "_postman_id": "7f7b0a49-78ea-4182-a6b1-b3c82c1d43bf",
+          "name": "Liveness check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('reports ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "_postman_id": "120b5062-fab2-4b1a-a81e-cad7cae6c256",
+          "name": "Database connectivity check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/db",
+              "host": ["{{base_url}}"],
+              "path": ["health", "db"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 (503 means the DB is unreachable)', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "_postman_id": "fc5c12d8-8ed1-4897-b7e0-98f2f106cfad",
+          "name": "Upload an order-history CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select a Walmart order-history .csv export. Nothing is persisted yet — the response just echoes the parsed columns/rows."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/orders/upload",
+              "host": ["{{base_url}}"],
+              "path": ["orders", "upload"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "description": "Run these in order: Register creates an account and picks a fresh random test_email/test_password (only if those collection variables are still empty); Login exchanges them for a token pair; Refresh rotates it; Logout/Logout all revoke it. Users/Get current user needs the access_token Login (or Refresh) set.",
+      "item": [
+        {
+          "_postman_id": "58de17c8-bc78-40dd-a1fb-8b231e864cd0",
+          "name": "Register a new account",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Only generate fresh credentials once per collection run — reused by",
+                  "// Login below, so re-running this folder doesn't require manual edits.",
+                  "// To register a second account, clear test_email/test_password first",
+                  "// (collection Variables tab, or the pre-request script's `pm.collectionVariables.unset`).",
+                  "if (!pm.collectionVariables.get('test_email')) {",
+                  "    pm.collectionVariables.set('test_email', pm.variables.replaceIn('{{$randomEmail}}'));",
+                  "    pm.collectionVariables.set('test_password', 'CorrectHorse!Battery1');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201, or 400 if this email is already registered', () => {",
+                  "    pm.expect([201, 400]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 201) {",
+                  "    pm.test('response has an id and the submitted email', () => {",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.id).to.be.a('string');",
+                  "        pm.expect(body.email).to.eql(pm.collectionVariables.get('test_email'));",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"{{test_password}}\",\n  \"display_name\": \"Postman Test User\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "_postman_id": "aae27a3f-5245-4d6d-aa0d-1d4a9047832b",
+          "name": "Log in",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('response has both tokens', () => {",
+                  "    pm.expect(body.access_token).to.be.a('string');",
+                  "    pm.expect(body.refresh_token).to.be.a('string');",
+                  "});",
+                  "pm.collectionVariables.set('access_token', body.access_token);",
+                  "pm.collectionVariables.set('refresh_token', body.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"{{test_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "_postman_id": "13df0d0e-3371-4477-bcd3-8c91ad9d6825",
+          "name": "Refresh the token pair",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('response has a rotated (different) refresh token', () => {",
+                  "    pm.expect(body.refresh_token).to.be.a('string');",
+                  "    pm.expect(body.refresh_token).to.not.eql(pm.collectionVariables.get('refresh_token'));",
+                  "});",
+                  "pm.collectionVariables.set('access_token', body.access_token);",
+                  "pm.collectionVariables.set('refresh_token', body.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "refresh"]
+            }
+          },
+          "response": []
+        },
+        {
+          "_postman_id": "c63a19a0-0765-4ece-a7b7-53344d5a2d01",
+          "name": "Log out (this session)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "logout"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "_postman_id": "54dbbccd-ae7c-48f2-9807-9b3ed028851b",
+          "name": "Log out all sessions",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/logout-all",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "logout-all"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "_postman_id": "10c21fbd-bd34-466c-aa2f-5110b5aef95f",
+          "name": "Get current user",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+            },
+            "url": {
+              "raw": "{{base_url}}/users/me",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 (401 means access_token is missing/expired — run Log in first)', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('profile email matches the logged-in account', () => {",
+                  "    pm.expect(pm.response.json().email).to.eql(pm.collectionVariables.get('test_email'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}

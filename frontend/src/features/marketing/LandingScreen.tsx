@@ -1,8 +1,10 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { Snackbar } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAuth } from '@/features/auth/AuthContext';
 import { useAppTheme } from '@/theme';
 
 import { BottomCtaSection } from './components/BottomCtaSection';
@@ -16,15 +18,20 @@ import { SeeItInActionSection } from './components/SeeItInActionSection';
  * Public marketing landing page ("Problem to Preview"): top bar, hero, three
  * steps, dashboard preview, closing CTA band, footer.
  *
- * There is no auth system in the app yet, so every "Get started" affordance
- * routes through one handler. It acknowledges the tap with a Snackbar rather
- * than silently doing nothing - a dead primary button is worse than an honest
- * "not built yet". Swap `handleGetStarted` for the real sign-up route once it
- * exists; nothing else on the screen needs to change.
+ * Sign-up does not exist yet, so every "Get started" affordance routes through
+ * one handler that acknowledges the tap with a Snackbar rather than silently
+ * doing nothing - a dead primary button is worse than an honest "not built
+ * yet". Swap `handleGetStarted` for the real sign-up route once it exists.
+ * "Log in", by contrast, does have a destination: it navigates to `/login`.
+ *
+ * Once a session is authenticated the top bar shows the signed-in identity and
+ * a "Log out" action in place of "Log in" / "Get started".
  */
 export function LandingScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { status, user, signOut } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   const howItWorksY = useRef(0);
   const headerHeight = useRef(0);
@@ -33,6 +40,15 @@ export function LandingScreen() {
   const handleGetStarted = useCallback(() => {
     setSnackbarVisible(true);
   }, []);
+
+  const handleLogIn = useCallback(() => {
+    router.push('/login');
+  }, [router]);
+
+  const account =
+    status === 'authenticated' && user
+      ? { label: user.display_name ?? user.email, onLogOut: () => void signOut() }
+      : undefined;
 
   const handleHeaderLayout = useCallback((event: LayoutChangeEvent) => {
     headerHeight.current = event.nativeEvent.layout.height;
@@ -61,7 +77,11 @@ export function LandingScreen() {
         contentContainerStyle={{ backgroundColor: theme.colors.background }}
       >
         <View onLayout={handleHeaderLayout}>
-          <LandingTopBar onGetStarted={handleGetStarted} />
+          <LandingTopBar
+            onGetStarted={handleGetStarted}
+            onLogIn={handleLogIn}
+            account={account}
+          />
         </View>
 
         <HeroSection

@@ -1,0 +1,639 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Shopping Analysis API",
+    "description": "Backend for the Shopping Analysis project: order-history ingestion and, as of this pass, account registration/login. See `docs/design/` for the full system design; this schema is generated from the running app via `python -m app.cli export-openapi`.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Register a new account",
+        "description": "Create a new user account with a password identity.\n\nLeaves ``email_verified=False`` but does not block login on it \u2014\nemail verification is out of scope for this pass (uac-design.md \u00a71\n\"Account states\"); the account behaves as fully active immediately.\n\n:param payload: The registration request body.\n:type payload: RegisterRequest\n:param db: The database session, injected via dependency.\n:type db: AsyncSession\n:raises HTTPException: 400 if the email is already registered \u2014 checked\n    up front, and again via the unique-constraint race below (two\n    concurrent registrations for the same not-yet-existing email).\n:returns: The newly created user.\n:rtype: User\n\n.. note::\n    Unlike ``login``'s deliberately generic 401 (anti-enumeration), this\n    does confirm whether an email is already registered \u2014 an accepted,\n    conscious trade-off for this pass, not an oversight: a distinct\n    \"email taken\" error is common/expected registration UX, and the\n    enumeration risk here is lower-value to an attacker than at login\n    (no password guess is validated). Revisit if that stops holding\n    (uac-design.md \u00a71).",
+        "operationId": "register_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Log in with email and password",
+        "description": "Verify credentials and issue an access/refresh token pair.\n\n:param payload: The login request body.\n:type payload: LoginRequest\n:param request: The incoming request (for user-agent/IP metadata).\n:type request: Request\n:param db: The database session, injected via dependency.\n:type db: AsyncSession\n:param settings: Application settings, injected via dependency.\n:type settings: Settings\n:raises HTTPException: 401 for any authentication failure \u2014 see\n    :func:`_authenticate_password` for why these aren't distinguished.\n:returns: A new access/refresh token pair.\n:rtype: TokenPairResponse",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Rotate a refresh token",
+        "description": "Validate and rotate a refresh token, issuing a new access/refresh pair.\n\nLooked up by exact hash equality, not decoded \u2014 see\n:func:`app.security.hash_refresh_token` for why. Rotation semantics\n(uac-design.md \u00a71): an unknown hash or an expired-but-unrevoked token is\na plain 401; a token that's already been revoked (rotated out or\nlogged out) being presented again is treated as reuse/theft and revokes\nevery other active session for that user before returning the same 401.\n\n:param payload: The refresh request body.\n:type payload: RefreshRequest\n:param request: The incoming request (for user-agent/IP metadata).\n:type request: Request\n:param db: The database session, injected via dependency.\n:type db: AsyncSession\n:param settings: Application settings, injected via dependency.\n:type settings: Settings\n:raises HTTPException: 401 if the token is unknown, expired, or reused.\n:returns: A new access/refresh token pair.\n:rtype: TokenPairResponse",
+        "operationId": "refresh_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Log out one session",
+        "description": "Revoke one refresh token \u2014 the caller's own session only.\n\nA refresh token that doesn't exist, or belongs to a different user, is\n**not** an error: it's a silent no-op, still returning 204. This avoids\nboth an information leak (whether that token exists, or whose it is)\nand a \"log someone else out\" primitive \u2014 without this, an authenticated\ncaller could pass another user's refresh token and force that session\nclosed.\n\n:param payload: The logout request body.\n:type payload: LogoutRequest\n:param claims: The verified access-token claims, injected via dependency.\n:type claims: AccessTokenClaims\n:param db: The database session, injected via dependency.\n:type db: AsyncSession",
+        "operationId": "logout_auth_logout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/auth/logout-all": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Log out every session (\"sign out all devices\")",
+        "description": "Revoke every refresh token for the caller (\"sign out all devices\").\n\n:param claims: The verified access-token claims, injected via dependency.\n:type claims: AccessTokenClaims\n:param db: The database session, injected via dependency.\n:type db: AsyncSession",
+        "operationId": "logout_all_auth_logout_all_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/users/me": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Get the current user's profile",
+        "description": "Return the authenticated caller's own profile.\n\nRe-fetches the row by ``claims.user_id`` rather than trusting the\ntoken's cached claims for profile data, so a deleted account is caught\nhere (401) instead of serving profile fields from stale claims. A\ndisabled account is *not* rejected here \u2014 it's still returned, with\n``is_active: false``, for the caller to act on; ``is_active`` is\nenforced at login/refresh (``_authenticate_password``, ``refresh``),\nnot by hiding an authenticated user's own profile from them.\n\n:param claims: The verified access-token claims, injected via dependency.\n:type claims: AccessTokenClaims\n:param db: The database session, injected via dependency.\n:type db: AsyncSession\n:raises HTTPException: 401 if the token's user no longer exists.\n:returns: The caller's own user row.\n:rtype: User",
+        "operationId": "read_current_user_users_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfile"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness check",
+        "description": "Report basic application liveness.\n\n:returns: A static ``{\"status\": \"ok\"}`` payload.\n:rtype: dict[str, str]",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/db": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Database connectivity check",
+        "description": "Check database connectivity by running a trivial query.\n\n:param db: The database session, injected via dependency.\n:type db: AsyncSession\n:raises HTTPException: If the database is unreachable.\n:returns: A static ``{\"status\": \"ok\"}`` payload if the query succeeds.\n:rtype: dict[str, str]",
+        "operationId": "health_db_health_db_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Db Health Db Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/upload": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Upload an order-history CSV",
+        "description": "Parse an uploaded Walmart order-history CSV and echo its rows.\n\n:param file: The uploaded CSV file.\n:type file: UploadFile\n:raises HTTPException: If the file is missing, not a ``.csv``, not\n    valid UTF-8, or has no header row.\n:returns: The filename, column names, row count, and parsed rows.\n:rtype: dict",
+        "operationId": "upload_orders_csv_orders_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_orders_csv_orders_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Upload Orders Csv Orders Upload Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_upload_orders_csv_orders_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_orders_csv_orders_upload_post"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "Request body for ``POST /auth/login``."
+      },
+      "LogoutRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "LogoutRequest",
+        "description": "Request body for ``POST /auth/logout``."
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshRequest",
+        "description": "Request body for ``POST /auth/refresh``."
+      },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "description": "Request body for ``POST /auth/register``."
+      },
+      "RegisterResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "display_name"
+        ],
+        "title": "RegisterResponse",
+        "description": "Response body for a successful ``POST /auth/register``."
+      },
+      "TokenPairResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "bearer",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "expires_in"
+        ],
+        "title": "TokenPairResponse",
+        "description": "Response body carrying a freshly-issued access/refresh token pair.\n\nReturned by ``POST /auth/login`` and ``POST /auth/refresh``."
+      },
+      "UserProfile": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "email_verified": {
+            "type": "boolean",
+            "title": "Email Verified"
+          },
+          "is_superuser": {
+            "type": "boolean",
+            "title": "Is Superuser"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "display_name",
+          "avatar_url",
+          "is_active",
+          "email_verified",
+          "is_superuser",
+          "created_at",
+          "last_login_at"
+        ],
+        "title": "UserProfile",
+        "description": "Response body for ``GET /users/me`` \u2014 the caller's own profile."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Liveness/readiness checks \u2014 no auth required."
+    },
+    {
+      "name": "auth",
+      "description": "Registration, login, and token lifecycle. See `docs/design/uac-design.md` \u00a71 for the full contract (transport, error codes, refresh-token rotation/reuse semantics)."
+    },
+    {
+      "name": "users",
+      "description": "The authenticated caller's own profile."
+    },
+    {
+      "name": "orders",
+      "description": "Order-history CSV ingestion (not yet persisted)."
+    }
+  ]
+}

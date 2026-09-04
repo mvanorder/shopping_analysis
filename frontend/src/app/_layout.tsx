@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AuthProvider } from '@/features/auth/AuthContext';
 import {
   appFonts,
   darkTheme,
@@ -65,7 +66,9 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ThemePreferenceProvider>
-        <ThemedApp fontsSettled={fontsSettled} />
+        <AuthProvider>
+          <ThemedApp fontsSettled={fontsSettled} />
+        </AuthProvider>
       </ThemePreferenceProvider>
     </SafeAreaProvider>
   );
